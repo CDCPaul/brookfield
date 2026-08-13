@@ -1,6 +1,8 @@
 import Link from 'next/link';
 
 import { BottomNav } from '@/components/bottom-nav';
+import { Logo } from '@/components/logo';
+import { Wordmark } from '@/components/wordmark';
 
 export default function ResidentLayout({
   children,
@@ -8,13 +10,9 @@ export default function ResidentLayout({
   return (
     <div className="mx-auto flex min-h-dvh max-w-[480px] flex-col">
       <header className="sticky top-0 z-10 border-b border-edge bg-surface/95 px-4 py-3 backdrop-blur">
-        <Link href="/" className="flex items-center gap-2">
-          <span className="grid size-8 place-items-center rounded-full bg-court text-sm font-bold text-white">
-            B
-          </span>
-          <span className="text-base font-semibold tracking-tight">
-            Brookfield Courts
-          </span>
+        <Link href="/" className="flex items-center gap-2.5">
+          <Logo className="size-9 shrink-0" />
+          <Wordmark />
         </Link>
       </header>
 

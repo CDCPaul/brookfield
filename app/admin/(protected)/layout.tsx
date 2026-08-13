@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 
 import { AdminNav } from '@/components/admin/admin-nav';
+import { Logo } from '@/components/logo';
+import { Wordmark } from '@/components/wordmark';
 import { adminLogoutAction } from '@/app/admin/actions';
 import { isAdmin } from '@/lib/auth';
 
@@ -15,9 +17,9 @@ export default async function AdminLayout({
     <div className="mx-auto flex min-h-dvh max-w-[560px] flex-col">
       <header className="sticky top-0 z-10 border-b border-edge bg-surface/95 backdrop-blur">
         <div className="flex items-center justify-between px-4 py-3">
-          <div>
-            <p className="text-base font-semibold tracking-tight">Admin</p>
-            <p className="text-xs text-muted">Brookfield Courts</p>
+          <div className="flex items-center gap-2.5">
+            <Logo className="size-8 shrink-0" />
+            <Wordmark sub="Admin" />
           </div>
           <form action={adminLogoutAction}>
             <button

@@ -1,27 +1,34 @@
 @import 'tailwindcss';
 
+/*
+ * Palette taken from the Brookfield Subdivision logo: the foliage greens of the
+ * mark and wordmark, the sun, and the water.
+ */
 @theme {
-  --color-court: #1f7a4d;
-  --color-court-dark: #145c39;
-  --color-court-soft: #e8f5ee;
-  --color-clay: #c1642f;
+  --color-court: #4a7c2b;
+  --color-court-dark: #37601f;
+  --color-court-soft: #eaf4e0;
+  --color-leaf: #8cc63f;
+  --color-sun: #f5a623;
+  --color-clay: #c96a10;
+  --color-water: #29abe2;
 }
 
 :root {
-  --background: #f6f7f5;
+  --background: #f6f7f2;
   --surface: #ffffff;
-  --foreground: #14201a;
-  --muted: #5f6b64;
-  --border: #dfe4e0;
+  --foreground: #1a2415;
+  --muted: #61705a;
+  --border: #dfe6d8;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0e1512;
-    --surface: #16201b;
-    --foreground: #e8efea;
-    --muted: #93a29a;
-    --border: #26332c;
+    --background: #101610;
+    --surface: #182116;
+    --foreground: #e9efe6;
+    --muted: #97a691;
+    --border: #283322;
   }
 }
 
@@ -31,6 +38,7 @@
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-edge: var(--border);
+  --font-brand: var(--font-cormorant), Georgia, serif;
 }
 
 html {
