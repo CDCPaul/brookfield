@@ -1,0 +1,51 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-court: #1f7a4d;
+  --color-court-dark: #145c39;
+  --color-court-soft: #e8f5ee;
+  --color-clay: #c1642f;
+}
+
+:root {
+  --background: #f6f7f5;
+  --surface: #ffffff;
+  --foreground: #14201a;
+  --muted: #5f6b64;
+  --border: #dfe4e0;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0e1512;
+    --surface: #16201b;
+    --foreground: #e8efea;
+    --muted: #93a29a;
+    --border: #26332c;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-edge: var(--border);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Stops iOS Safari from zooming when a form field is focused. */
+  font-size: 16px;
+}
+
+/* Tap targets should never show a grey flash on iOS. */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
