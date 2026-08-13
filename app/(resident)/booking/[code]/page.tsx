@@ -1,19 +1,32 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { bookerLabel } from '@/components/booker-label';
 import { PaymentBadge, StatusBadge } from '@/components/booking-status';
 import { PaymentInstructions } from '@/components/payment-instructions';
-import { PrimaryLink, SportBadge } from '@/components/ui';
+import { PaymentProofUpload } from '@/components/payment-proof-upload';
+import { PaymentReferenceForm } from '@/components/payment-reference-form';
+import { Card, Notice, PrimaryLink, SportBadge } from '@/components/ui';
 import { isValidBookingCode, normalizeBookingCode } from '@/lib/booking-code';
-import { getBookingByCode } from '@/lib/queries/bookings';
+import { encodeOwner, phoneOwner, type Owner } from '@/lib/owner';
 import { isPaymentConfigured } from '@/lib/payment';
+import { isBlobConfigured } from '@/lib/payment-proof';
+import { getBookingByCode, type BookingWithUnit } from '@/lib/queries/bookings';
 import { getSettings } from '@/lib/queries/settings';
 import { formatPeso, getSlot } from '@/lib/schedule';
 import { formatLongDate } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
-export default async function BookingConfirmationPage({
+/** The identity that proves this booking is yours, same as a lookup returns. */
+function ownerFor(booking: BookingWithUnit): Owner {
+  if (booking.bookerType === 'resident' && booking.unitKey) {
+    return { kind: 'unit', key: booking.unitKey };
+  }
+  return phoneOwner(booking.phone);
+}
+
+export default async function BookingPage({
   params,
 }: {
   params: Promise<{ code: string }>;
@@ -26,18 +39,23 @@ export default async function BookingConfirmationPage({
 
   const { payment } = await getSettings();
   const slot = getSlot(booking.slotIndex);
+
   const owes = booking.amount > 0 && booking.paymentStatus !== 'paid';
+  const awaitingCheck = booking.paymentStatus === 'submitted';
+  const owner = encodeOwner(ownerFor(booking));
 
   return (
     <div className="space-y-5">
       <section className="text-center">
         <h1 className="text-2xl font-bold tracking-tight">
-          {headline(booking.status)}
+          {headline(booking, owes, awaitingCheck)}
         </h1>
         <p className="mt-2">
           <StatusBadge status={booking.status} />
         </p>
-        <p className="mt-2 text-sm text-muted">{subtitle(booking.status)}</p>
+        <p className="mt-2 text-sm text-muted">
+          {subtitle(booking, owes, awaitingCheck)}
+        </p>
       </section>
 
       <section className="rounded-2xl border border-edge bg-surface p-5">
@@ -89,37 +107,89 @@ export default async function BookingConfirmationPage({
         ) : null}
       </section>
 
-      {owes && isPaymentConfigured(payment) ? (
-        <PaymentInstructions
-          payment={payment}
-          amount={booking.amount}
-          code={booking.code}
-        />
+      {owes ? (
+        isPaymentConfigured(payment) ? (
+          <>
+            <PaymentInstructions
+              payment={payment}
+              amount={booking.amount}
+              code={booking.code}
+            />
+
+            <Card>
+              <div className="space-y-4">
+                {isBlobConfigured() ? (
+                  <PaymentProofUpload
+                    bookingId={booking.id}
+                    owner={owner}
+                    existingUrl={booking.paymentProofUrl}
+                  />
+                ) : null}
+                <PaymentReferenceForm
+                  bookingId={booking.id}
+                  owner={owner}
+                  existing={booking.paymentRef}
+                />
+              </div>
+            </Card>
+          </>
+        ) : (
+          <Notice>
+            The association will contact you about paying{' '}
+            {formatPeso(booking.amount)}.
+          </Notice>
+        )
       ) : null}
 
-      {owes && !isPaymentConfigured(payment) ? (
-        <p className="rounded-xl border border-edge bg-surface px-3.5 py-3 text-sm text-muted">
-          The association will contact you about paying {formatPeso(booking.amount)}.
-        </p>
+      {booking.amount > 0 && booking.paymentStatus === 'paid' ? (
+        <Notice tone="success">
+          Payment received. Nothing more to do.
+        </Notice>
       ) : null}
 
-      <PrimaryLink href="/my">Go to my bookings</PrimaryLink>
+      <div className="space-y-2">
+        <PrimaryLink href="/my">Go to my bookings</PrimaryLink>
+        <Link
+          href="/book"
+          className="block text-center text-sm font-medium text-court underline"
+        >
+          Book another slot
+        </Link>
+      </div>
     </div>
   );
 }
 
-function headline(status: string): string {
-  if (status === 'confirmed') return 'Your booking is confirmed';
-  if (status === 'rejected') return 'Request declined';
-  if (status === 'cancelled') return 'Booking cancelled';
+function headline(
+  booking: BookingWithUnit,
+  owes: boolean,
+  awaitingCheck: boolean,
+): string {
+  if (booking.status === 'confirmed') return 'Your booking is confirmed';
+  if (booking.status === 'rejected') return 'Request declined';
+  if (booking.status === 'cancelled') return 'Booking cancelled';
+  if (awaitingCheck) return 'Checking your payment';
+  if (owes) return 'Almost there — pay to confirm';
   return 'Request received';
 }
 
-function subtitle(status: string): string {
-  if (status === 'confirmed') return 'Please arrive a few minutes early.';
-  if (status === 'rejected') return 'The slot has been released.';
-  if (status === 'cancelled') return 'This slot has been released.';
-  return 'The association will review it shortly. You can check back here or under My bookings.';
+function subtitle(
+  booking: BookingWithUnit,
+  owes: boolean,
+  awaitingCheck: boolean,
+): string {
+  if (booking.status === 'confirmed') {
+    return 'Please arrive 10–15 minutes early.';
+  }
+  if (booking.status === 'rejected') return 'The slot has been released.';
+  if (booking.status === 'cancelled') return 'This slot has been released.';
+  if (awaitingCheck) {
+    return 'We have your payment details. The association will confirm the booking shortly.';
+  }
+  if (owes) {
+    return 'Your slot is held while you pay. Send the fee, then upload your receipt below.';
+  }
+  return 'The association will review it shortly.';
 }
 
 function Row({

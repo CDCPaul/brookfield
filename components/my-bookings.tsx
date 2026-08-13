@@ -6,13 +6,12 @@ import { useActionState, useEffect, useRef, useState, useTransition } from 'reac
 import {
   cancelBookingAction,
   lookupBookingsAction,
-  submitPaymentAction,
   type LookupState,
-  type PaymentState,
 } from '@/app/actions';
 import { PaymentBadge, StatusBadge } from '@/components/booking-status';
 import { PaymentInstructions } from '@/components/payment-instructions';
 import { PaymentProofUpload } from '@/components/payment-proof-upload';
+import { PaymentReferenceForm } from '@/components/payment-reference-form';
 import {
   Field,
   Notice,
@@ -303,46 +302,3 @@ function BookingCard({
   );
 }
 
-function PaymentReferenceForm({
-  bookingId,
-  owner,
-  existing,
-}: {
-  bookingId: number;
-  owner: string;
-  existing: string | null;
-}) {
-  const [state, formAction] = useActionState<PaymentState, FormData>(
-    submitPaymentAction,
-    {},
-  );
-
-  return (
-    <form action={formAction} className="space-y-2">
-      <input type="hidden" name="bookingId" value={bookingId} />
-      <input type="hidden" name="owner" value={owner} />
-
-      <Field label="GCash reference number">
-        <input
-          name="reference"
-          required
-          inputMode="numeric"
-          defaultValue={existing ?? ''}
-          placeholder="e.g. 1234567890123"
-          className={inputClass}
-        />
-      </Field>
-
-      {state.error ? <Notice tone="error">{state.error}</Notice> : null}
-      {state.submitted ? (
-        <Notice tone="success">
-          Thank you. The association will check it and confirm your booking.
-        </Notice>
-      ) : null}
-
-      <PrimaryButton type="submit">
-        {existing ? 'Update reference' : 'I have paid'}
-      </PrimaryButton>
-    </form>
-  );
-}
