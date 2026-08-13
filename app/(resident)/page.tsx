@@ -4,7 +4,7 @@ import { ClosureNotice } from '@/components/closure-notice';
 import { DateStrip } from '@/components/date-strip';
 import { NextBooking } from '@/components/next-booking';
 import { SlotList } from '@/components/slot-list';
-import { PrimaryLink, SportBadge } from '@/components/ui';
+import { SportBadge } from '@/components/ui';
 import { getCalendarStrip, getDayAvailability } from '@/lib/queries/availability';
 import { getClosures } from '@/lib/queries/closures';
 import { getLimits } from '@/lib/queries/settings';
@@ -28,9 +28,6 @@ export default async function TodayPage() {
     slot.courts.every((court) => court.status === 'past'),
   );
 
-  const tomorrow = addDays(today, 1);
-  const tomorrowSummary = strip.find((entry) => entry.date === tomorrow);
-
   return (
     <div className="space-y-5">
       <section>
@@ -48,36 +45,13 @@ export default async function TodayPage() {
       <ClosureNotice closures={closures} />
 
       {morningIsOver ? (
-        <section className="space-y-4">
-          <div className="rounded-2xl border border-edge bg-surface p-5 text-center">
-            <p className="text-base font-semibold">
-              Today&apos;s free hours are over
-            </p>
-            <p className="mt-1 text-sm text-muted">
-              The courts open again tomorrow at 6:00 AM.
-            </p>
-          </div>
-
-          {tomorrowSummary ? (
-            <div className="rounded-2xl border border-edge bg-surface p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold">Tomorrow</p>
-                  <p className="text-xs text-muted">{formatLongDate(tomorrow)}</p>
-                </div>
-                <SportBadge sport={tomorrowSummary.sport} />
-              </div>
-              <p className="mt-3 text-sm text-muted">
-                {tomorrowSummary.openCount} of {tomorrowSummary.capacity} places
-                still open.
-              </p>
-              <div className="mt-3">
-                <PrimaryLink href={`/book?date=${tomorrow}`}>
-                  Book for tomorrow
-                </PrimaryLink>
-              </div>
-            </div>
-          ) : null}
+        <section className="rounded-2xl border border-edge bg-surface p-5 text-center">
+          <p className="text-base font-semibold">
+            Today&apos;s free hours are over
+          </p>
+          <p className="mt-1 text-sm text-muted">
+            The courts open again at 6:00 AM. Pick a day below to book.
+          </p>
         </section>
       ) : (
         <>

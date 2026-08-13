@@ -5,7 +5,7 @@ import { useActionState, useEffect, useTransition } from 'react';
 
 import { lookupBookingsAction, type LookupState } from '@/app/actions';
 import { getSlot } from '@/lib/schedule';
-import { loadUnit } from '@/lib/stored-unit';
+import { ADDRESS_FIELDS, loadBooker } from '@/lib/stored-booker';
 import { formatLongDate } from '@/lib/time';
 
 /**
@@ -22,13 +22,15 @@ export function NextBooking() {
   const [, startTransition] = useTransition();
 
   useEffect(() => {
-    const stored = loadUnit();
+    const stored = loadBooker();
     if (!stored) return;
 
     const formData = new FormData();
-    formData.set('phase', stored.phase);
-    formData.set('block', stored.block);
-    formData.set('lot', stored.lot);
+    if (stored.phone !== '') {
+      formData.set('phone', stored.phone);
+    } else {
+      for (const field of ADDRESS_FIELDS) formData.set(field, stored[field]);
+    }
     startTransition(() => formAction(formData));
   }, [formAction]);
 

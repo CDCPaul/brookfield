@@ -1,4 +1,5 @@
 import { BookingActions } from '@/components/admin/booking-actions';
+import { GuestBadge, bookerLabel } from '@/components/booker-label';
 import { DateNav } from '@/components/admin/date-nav';
 import { Notice, SportBadge } from '@/components/ui';
 import { getBookingsForDate } from '@/lib/queries/bookings';
@@ -6,7 +7,6 @@ import { getClosures } from '@/lib/queries/closures';
 import { findClosure } from '@/lib/rules';
 import { SLOTS, courtNumbers, sportForDate, sportLabel } from '@/lib/schedule';
 import { isValidDateStr, manilaNow } from '@/lib/time';
-import { formatUnitLabel } from '@/lib/unit-key';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,16 +82,17 @@ export default async function AdminBookingsPage({
 
                       {booking ? (
                         <div className="flex-1 text-right">
-                          <p className="text-sm font-semibold">
+                          <p className="flex items-center justify-end gap-1.5 text-sm font-semibold">
+                            {booking.bookerType !== 'resident' ? (
+                              <GuestBadge />
+                            ) : null}
                             {booking.bookerName}
                           </p>
-                          <p className="text-xs text-muted">
-                            {formatUnitLabel({
-                              phase: booking.unitPhase,
-                              block: booking.unitBlock,
-                              lot: booking.unitLot,
-                            })}
-                          </p>
+                          {bookerLabel(booking) ? (
+                            <p className="text-xs text-muted">
+                              {bookerLabel(booking)}
+                            </p>
+                          ) : null}
                           <p className="text-xs">
                             <a
                               href={`tel:${booking.phone}`}

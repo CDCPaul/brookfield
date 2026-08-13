@@ -1,11 +1,17 @@
-import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, lte } from 'drizzle-orm';
 
 import { generateBookingCode } from '@/lib/booking-code';
 import { bookings, db, units, type Booking } from '@/lib/db';
 import {
+  type BookerType,
+  type Owner,
+  phoneOwner,
+  unitOwner,
+} from '@/lib/owner';
+import {
   type ActiveBooking,
+  type BookerState,
   type RejectionCode,
-  type UnitState,
   checkBooking,
 } from '@/lib/rules';
 import { isValidCourtNo, isValidSlotIndex, sportForDate } from '@/lib/schedule';
@@ -17,7 +23,6 @@ import {
   type DateStr,
 } from '@/lib/time';
 import {
-  buildUnitKey,
   isCompleteUnit,
   isValidPhilippineMobile,
   normalizePhone,
@@ -48,44 +53,55 @@ export async function getActiveBookings(
 }
 
 /**
- * The unit's active bookings across the window that matters for limits.
+ * The booker's active bookings across the window that matters for limits.
  *
  * The range starts at the Monday of the current week, not today: a booking
  * earlier this week has already spent part of the weekly allowance even though
  * it is in the past.
  */
-export async function getUnitState(
-  unitKey: string,
+export async function getBookerState(
+  owner: Owner,
   today: DateStr,
   advanceDays: number,
-): Promise<UnitState> {
-  const unit = await findUnitByKey(unitKey);
-  if (!unit) return { isBlocked: false, bookings: [] };
-
+): Promise<BookerState> {
   const from = weekStart(today);
   const to = addDays(today, advanceDays);
+  const withinWindow = and(
+    ACTIVE,
+    gte(bookings.bookingDate, from),
+    lte(bookings.bookingDate, to),
+  );
+
+  if (owner.kind === 'phone') {
+    const rows = await db
+      .select({ date: bookings.bookingDate })
+      .from(bookings)
+      .where(and(eq(bookings.phone, owner.key), withinWindow));
+    return { isBlocked: false, bookings: rows };
+  }
+
+  const unit = await findUnitByKey(owner.key);
+  if (!unit) return { isBlocked: false, bookings: [] };
 
   const rows = await db
     .select({ date: bookings.bookingDate })
     .from(bookings)
-    .where(
-      and(
-        eq(bookings.unitId, unit.id),
-        ACTIVE,
-        gte(bookings.bookingDate, from),
-        lte(bookings.bookingDate, to),
-      ),
-    );
+    .where(and(eq(bookings.unitId, unit.id), withinWindow));
 
   return { isBlocked: unit.isBlocked, bookings: rows };
 }
 
-export type CreateBookingInput = UnitInput & {
+export type CreateBookingInput = {
   date: DateStr;
   slotIndex: number;
   courtNo: number;
   name: string;
   phone: string;
+  bookerType: BookerType;
+  /** Required for residents, ignored for guests. */
+  phase?: string;
+  block?: string;
+  lot?: string;
 };
 
 export type CreateBookingResult =
@@ -117,14 +133,22 @@ export async function createBooking(
 
   const name = input.name.trim();
   if (name.length < 2) return invalid('Please enter your full name.');
-  if (!isCompleteUnit(input)) {
-    return invalid('Please fill in your phase, block and lot.');
-  }
   if (!isValidPhilippineMobile(input.phone)) {
     return invalid('Please enter a valid mobile number, e.g. 0917 123 4567.');
   }
   if (!isValidSlotIndex(input.slotIndex)) {
     return invalid('Please choose a time slot.');
+  }
+
+  const isResident = input.bookerType === 'resident';
+  const unitInput: UnitInput = {
+    phase: input.phase ?? '',
+    block: input.block ?? '',
+    lot: input.lot ?? '',
+  };
+
+  if (isResident && !isCompleteUnit(unitInput)) {
+    return invalid('Please fill in your phase, block and lot.');
   }
 
   const sport = sportForDate(input.date);
@@ -134,12 +158,14 @@ export async function createBooking(
 
   const moment = manilaNow(now);
   const limits = await getLimits();
-  const unitKey = buildUnitKey(input);
+  const owner: Owner = isResident
+    ? unitOwner(unitInput)
+    : phoneOwner(input.phone);
 
-  const [closures, taken, unitState] = await Promise.all([
+  const [closures, taken, bookerState] = await Promise.all([
     getClosures(input.date, input.date),
     getActiveBookings(input.date, input.date),
-    getUnitState(unitKey, moment.date, limits.advanceDays),
+    getBookerState(owner, moment.date, limits.advanceDays),
   ]);
 
   const verdict = checkBooking({
@@ -150,14 +176,14 @@ export async function createBooking(
     limits,
     closures,
     taken,
-    unit: unitState,
+    booker: bookerState,
   });
 
   if (!verdict.ok) {
     return { ok: false, code: verdict.code, message: verdict.message };
   }
 
-  const unit = await findOrCreateUnit(input);
+  const unit = isResident ? await findOrCreateUnit(unitInput) : null;
 
   // The partial unique index is the real guard against a race between two
   // residents tapping the same court at the same moment.
@@ -171,7 +197,8 @@ export async function createBooking(
           slotIndex: input.slotIndex,
           sport,
           courtNo: input.courtNo,
-          unitId: unit.id,
+          bookerType: input.bookerType,
+          unitId: unit?.id ?? null,
           bookerName: name,
           phone: normalizePhone(input.phone),
         })
@@ -195,11 +222,12 @@ export async function createBooking(
   return invalid('Could not create the booking. Please try again.');
 }
 
+/** A booking with its household attached — null on all four for guests. */
 export type BookingWithUnit = Booking & {
-  unitPhase: string;
-  unitBlock: string;
-  unitLot: string;
-  unitKey: string;
+  unitPhase: string | null;
+  unitBlock: string | null;
+  unitLot: string | null;
+  unitKey: string | null;
 };
 
 const bookingWithUnitColumns = {
@@ -209,6 +237,7 @@ const bookingWithUnitColumns = {
   slotIndex: bookings.slotIndex,
   sport: bookings.sport,
   courtNo: bookings.courtNo,
+  bookerType: bookings.bookerType,
   unitId: bookings.unitId,
   bookerName: bookings.bookerName,
   phone: bookings.phone,
@@ -223,28 +252,33 @@ const bookingWithUnitColumns = {
   unitKey: units.unitKey,
 };
 
-/** Upcoming active bookings for one household. */
-export async function getUpcomingBookingsForUnit(
-  unitKey: string,
-  today: DateStr,
-): Promise<BookingWithUnit[]> {
+/** Guests have no unit row, so the join must not drop their bookings. */
+function selectBookings() {
   return db
     .select(bookingWithUnitColumns)
     .from(bookings)
-    .innerJoin(units, eq(bookings.unitId, units.id))
-    .where(
-      and(eq(units.unitKey, unitKey), ACTIVE, gte(bookings.bookingDate, today)),
-    )
+    .leftJoin(units, eq(bookings.unitId, units.id));
+}
+
+/** Upcoming active bookings for one household or one guest phone number. */
+export async function getUpcomingBookingsForOwner(
+  owner: Owner,
+  today: DateStr,
+): Promise<BookingWithUnit[]> {
+  const identity =
+    owner.kind === 'unit'
+      ? eq(units.unitKey, owner.key)
+      : eq(bookings.phone, owner.key);
+
+  return selectBookings()
+    .where(and(identity, ACTIVE, gte(bookings.bookingDate, today)))
     .orderBy(asc(bookings.bookingDate), asc(bookings.slotIndex));
 }
 
 export async function getBookingsForDate(
   date: DateStr,
 ): Promise<BookingWithUnit[]> {
-  return db
-    .select(bookingWithUnitColumns)
-    .from(bookings)
-    .innerJoin(units, eq(bookings.unitId, units.id))
+  return selectBookings()
     .where(eq(bookings.bookingDate, date))
     .orderBy(asc(bookings.slotIndex), asc(bookings.courtNo));
 }
@@ -252,33 +286,34 @@ export async function getBookingsForDate(
 export async function getBookingByCode(
   code: string,
 ): Promise<BookingWithUnit | null> {
-  const [row] = await db
-    .select(bookingWithUnitColumns)
-    .from(bookings)
-    .innerJoin(units, eq(bookings.unitId, units.id))
-    .where(eq(bookings.code, code))
-    .limit(1);
+  const [row] = await selectBookings().where(eq(bookings.code, code)).limit(1);
   return row ?? null;
 }
 
 export type CancelResult = { ok: true } | { ok: false; message: string };
 
 /**
- * Resident-initiated cancel. Ownership is proven by the unit key, which the
- * resident re-enters (or which is remembered on their phone).
+ * Self-service cancel. Ownership is proven by the same identity used to look
+ * the booking up — the household address for residents, the mobile number for
+ * guests.
  */
-export async function cancelBookingAsResident(
+export async function cancelBookingAsOwner(
   bookingId: number,
-  unitKey: string,
+  owner: Owner,
   now: Date = new Date(),
 ): Promise<CancelResult> {
   const moment = manilaNow(now);
 
+  const identity =
+    owner.kind === 'unit'
+      ? eq(units.unitKey, owner.key)
+      : eq(bookings.phone, owner.key);
+
   const [row] = await db
     .select({ id: bookings.id, date: bookings.bookingDate })
     .from(bookings)
-    .innerJoin(units, eq(bookings.unitId, units.id))
-    .where(and(eq(bookings.id, bookingId), eq(units.unitKey, unitKey), ACTIVE))
+    .leftJoin(units, eq(bookings.unitId, units.id))
+    .where(and(eq(bookings.id, bookingId), identity, ACTIVE))
     .limit(1);
 
   if (!row) return { ok: false, message: 'Booking not found.' };
@@ -332,57 +367,3 @@ export async function markNoShow(bookingId: number): Promise<CancelResult> {
   return { ok: true };
 }
 
-/** Active bookings covered by a closure, so the admin can act on them. */
-export async function getBookingsAffectedByClosure(input: {
-  dateFrom: DateStr;
-  dateTo: DateStr;
-  slotIndex: number | null;
-  courtNo: number | null;
-}): Promise<BookingWithUnit[]> {
-  const conditions = [
-    ACTIVE,
-    gte(bookings.bookingDate, input.dateFrom),
-    lte(bookings.bookingDate, input.dateTo),
-  ];
-  if (input.slotIndex !== null) {
-    conditions.push(eq(bookings.slotIndex, input.slotIndex));
-  }
-  if (input.courtNo !== null) {
-    conditions.push(eq(bookings.courtNo, input.courtNo));
-  }
-
-  return db
-    .select(bookingWithUnitColumns)
-    .from(bookings)
-    .innerJoin(units, eq(bookings.unitId, units.id))
-    .where(and(...conditions))
-    .orderBy(asc(bookings.bookingDate), asc(bookings.slotIndex));
-}
-
-export async function getRecentBookings(limit = 50): Promise<BookingWithUnit[]> {
-  return db
-    .select(bookingWithUnitColumns)
-    .from(bookings)
-    .innerJoin(units, eq(bookings.unitId, units.id))
-    .orderBy(desc(bookings.createdAt))
-    .limit(limit);
-}
-
-/** Per-date open/booked counts for the date strip. */
-export async function getDailyBookedCounts(
-  from: DateStr,
-  to: DateStr,
-): Promise<Map<DateStr, number>> {
-  const rows = await db
-    .select({
-      date: bookings.bookingDate,
-      count: sql<number>`count(*)::int`,
-    })
-    .from(bookings)
-    .where(
-      and(ACTIVE, gte(bookings.bookingDate, from), lte(bookings.bookingDate, to)),
-    )
-    .groupBy(bookings.bookingDate);
-
-  return new Map(rows.map((row) => [row.date, row.count]));
-}

@@ -48,10 +48,12 @@ export const bookings = pgTable(
     /** 'tennis' | 'pickleball' — derived from the date, stored for reporting. */
     sport: text('sport').notNull(),
     courtNo: smallint('court_no').notNull(),
-    unitId: integer('unit_id')
-      .notNull()
-      .references(() => units.id),
+    /** 'resident' | 'guest'. Guests are not tied to a household. */
+    bookerType: text('booker_type').notNull().default('resident'),
+    /** Null for guests, who have no unit in the village. */
+    unitId: integer('unit_id').references(() => units.id),
     bookerName: text('booker_name').notNull(),
+    /** Normalized to 09XXXXXXXXX. Doubles as the guest's identity. */
     phone: text('phone').notNull(),
     /** 'booked' | 'cancelled' | 'no_show'. */
     status: text('status').notNull().default('booked'),
@@ -72,6 +74,9 @@ export const bookings = pgTable(
       .where(sql`${table.status} = 'booked'`),
     index('bookings_date_idx').on(table.bookingDate),
     index('bookings_unit_idx').on(table.unitId),
+    // Guests are identified by phone, and residents can look themselves up
+    // by phone too.
+    index('bookings_phone_idx').on(table.phone),
   ],
 );
 

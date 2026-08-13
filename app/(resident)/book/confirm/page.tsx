@@ -70,7 +70,7 @@ export default async function ConfirmPage({
           <BookingForm date={date} slotIndex={slotIndex} courtNo={courtNo} />
           <p className="text-center text-xs text-muted">
             {limits.enabled
-              ? `Each household may book ${limits.maxPerDay} slot per day and ${limits.maxPerWeek} per week.`
+              ? `Limit of ${limits.maxPerDay} booking per day and ${limits.maxPerWeek} per week — per household for residents, per mobile number for guests.`
               : 'Please be considerate so everyone gets a turn.'}
           </p>
         </>

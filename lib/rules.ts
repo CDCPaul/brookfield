@@ -61,20 +61,24 @@ export type ActiveBooking = {
   courtNo: number;
 };
 
-export type UnitState = {
+/**
+ * The person or household making the booking — a resident unit or a guest
+ * identified by phone. Limits are counted the same way for both.
+ */
+export type BookerState = {
   isBlocked: boolean;
-  /** Every active booking held by this unit, across all dates. */
+  /** Every active booking they hold, across all dates. */
   bookings: { date: DateStr }[];
 };
 
-export const EMPTY_UNIT: UnitState = { isBlocked: false, bookings: [] };
+export const EMPTY_BOOKER: BookerState = { isBlocked: false, bookings: [] };
 
 export type RejectionCode =
   | 'invalid_slot'
   | 'invalid_court'
   | 'past'
   | 'too_far'
-  | 'unit_blocked'
+  | 'booker_blocked'
   | 'closed'
   | 'day_limit'
   | 'week_limit'
@@ -121,22 +125,22 @@ export function isPastSlot(
   return now.minutes >= slot.startMinutes;
 }
 
-export type UnitUsage = {
+export type BookerUsage = {
   dayUsed: number;
   dayMax: number;
   weekUsed: number;
   weekMax: number;
 };
 
-/** How much of its allowance the unit has spent, relative to `date`. */
-export function unitUsage(
-  unit: UnitState,
+/** How much of their allowance the booker has spent, relative to `date`. */
+export function bookerUsage(
+  booker: BookerState,
   date: DateStr,
   limits: BookingLimits,
-): UnitUsage {
+): BookerUsage {
   let dayUsed = 0;
   let weekUsed = 0;
-  for (const booking of unit.bookings) {
+  for (const booking of booker.bookings) {
     if (booking.date === date) dayUsed += 1;
     if (isSameWeek(booking.date, date)) weekUsed += 1;
   }
@@ -155,13 +159,13 @@ export type BookingRequest = {
   now: ManilaMoment;
   limits: BookingLimits;
   closures: readonly Closure[];
-  /** Active bookings already held on `date`, any unit. */
+  /** Active bookings already held on `date`, by anyone. */
   taken: readonly ActiveBooking[];
-  unit: UnitState;
+  booker: BookerState;
 };
 
 export function checkBooking(request: BookingRequest): BookingCheck {
-  const { date, slotIndex, courtNo, now, limits, closures, taken, unit } =
+  const { date, slotIndex, courtNo, now, limits, closures, taken, booker } =
     request;
 
   if (!isValidSlotIndex(slotIndex)) {
@@ -187,9 +191,9 @@ export function checkBooking(request: BookingRequest): BookingCheck {
     );
   }
 
-  if (unit.isBlocked) {
+  if (booker.isBlocked) {
     return reject(
-      'unit_blocked',
+      'booker_blocked',
       'This unit cannot book right now. Please contact the association office.',
     );
   }
@@ -200,17 +204,17 @@ export function checkBooking(request: BookingRequest): BookingCheck {
   }
 
   if (limits.enabled) {
-    const usage = unitUsage(unit, date, limits);
+    const usage = bookerUsage(booker, date, limits);
     if (usage.dayUsed >= usage.dayMax) {
       return reject(
         'day_limit',
-        `This unit already has a booking on ${formatShortDate(date)}.`,
+        `You already have a booking on ${formatShortDate(date)}.`,
       );
     }
     if (usage.weekUsed >= usage.weekMax) {
       return reject(
         'week_limit',
-        `This unit has used all ${usage.weekMax} bookings for that week.`,
+        `You have used all ${usage.weekMax} bookings for that week.`,
       );
     }
   }

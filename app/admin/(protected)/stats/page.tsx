@@ -55,6 +55,11 @@ export default async function StatsPage({
         <Stat label="No-shows" value={stats.noShow} />
       </section>
 
+      <section className="grid grid-cols-2 gap-2">
+        <Stat label="By residents" value={stats.residentCount} />
+        <Stat label="By guests" value={stats.guestCount} />
+      </section>
+
       {stats.total === 0 ? (
         <Notice>No bookings in this month yet.</Notice>
       ) : (

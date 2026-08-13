@@ -18,37 +18,40 @@ import {
 } from '@/components/ui';
 import type { BookingWithUnit } from '@/lib/queries/bookings';
 import { getSlot } from '@/lib/schedule';
+import { ADDRESS_FIELDS, loadBooker, mergeBooker } from '@/lib/stored-booker';
 import { formatLongDate } from '@/lib/time';
-import { loadUnit, mergeUnit } from '@/lib/stored-unit';
 
-const UNIT_FIELDS = ['phase', 'block', 'lot'] as const;
+type Mode = 'phone' | 'address';
 
 export function MyBookings() {
   const [state, formAction] = useActionState<LookupState, FormData>(
     lookupBookingsAction,
     {},
   );
+  const [mode, setMode] = useState<Mode>('phone');
   const [cancelledIds, setCancelledIds] = useState<number[]>([]);
   const formRef = useRef<HTMLFormElement>(null);
   const [, startTransition] = useTransition();
 
   // Look up automatically when this phone has booked before.
   useEffect(() => {
-    const stored = loadUnit();
-    const form = formRef.current;
+    const stored = loadBooker();
     if (!stored) return;
 
+    const form = formRef.current;
     if (form) {
-      for (const field of UNIT_FIELDS) {
-        const input = form.elements.namedItem(field);
-        if (input instanceof HTMLInputElement && input.value === '') {
-          input.value = stored[field];
-        }
+      const phoneInput = form.elements.namedItem('phone');
+      if (phoneInput instanceof HTMLInputElement && phoneInput.value === '') {
+        phoneInput.value = stored.phone;
       }
     }
 
     const formData = new FormData();
-    for (const field of UNIT_FIELDS) formData.set(field, stored[field]);
+    if (stored.phone !== '') {
+      formData.set('phone', stored.phone);
+    } else {
+      for (const field of ADDRESS_FIELDS) formData.set(field, stored[field]);
+    }
     startTransition(() => formAction(formData));
   }, [formAction]);
 
@@ -65,54 +68,88 @@ export function MyBookings() {
           action={formAction}
           onSubmit={(event) => {
             const data = new FormData(event.currentTarget);
-            mergeUnit({
-              phase: String(data.get('phase') ?? ''),
-              block: String(data.get('block') ?? ''),
-              lot: String(data.get('lot') ?? ''),
-            });
+            mergeBooker(
+              mode === 'phone'
+                ? { phone: String(data.get('phone') ?? '') }
+                : {
+                    phase: String(data.get('phase') ?? ''),
+                    block: String(data.get('block') ?? ''),
+                    lot: String(data.get('lot') ?? ''),
+                  },
+            );
           }}
           className="space-y-4"
         >
-          <p className="text-sm text-muted">
-            Enter your unit to see your upcoming bookings.
-          </p>
-
-          <div className="grid grid-cols-3 gap-2">
-            <Field label="Phase">
-              <input
-                name="phase"
-                required
-                autoCapitalize="characters"
-                className={inputClass}
-              />
-            </Field>
-            <Field label="Block">
-              <input
-                name="block"
-                required
-                autoCapitalize="characters"
-                className={inputClass}
-              />
-            </Field>
-            <Field label="Lot">
-              <input
-                name="lot"
-                required
-                autoCapitalize="characters"
-                className={inputClass}
-              />
-            </Field>
-          </div>
+          {mode === 'phone' ? (
+            <>
+              <p className="text-sm text-muted">
+                Enter the mobile number you booked with.
+              </p>
+              <Field label="Mobile number">
+                <input
+                  name="phone"
+                  required
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder="0917 123 4567"
+                  className={inputClass}
+                />
+              </Field>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-muted">
+                Enter your unit to see every booking made by your household.
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                <Field label="Phase">
+                  <input
+                    name="phase"
+                    required
+                    autoCapitalize="characters"
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="Block">
+                  <input
+                    name="block"
+                    required
+                    autoCapitalize="characters"
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="Lot">
+                  <input
+                    name="lot"
+                    required
+                    autoCapitalize="characters"
+                    className={inputClass}
+                  />
+                </Field>
+              </div>
+            </>
+          )}
 
           {state.error ? <Notice tone="error">{state.error}</Notice> : null}
 
           <PrimaryButton type="submit">Find my bookings</PrimaryButton>
+
+          <button
+            type="button"
+            onClick={() => setMode(mode === 'phone' ? 'address' : 'phone')}
+            className="block w-full text-center text-sm font-medium text-court underline"
+          >
+            {mode === 'phone'
+              ? 'Search by address instead'
+              : 'Search by mobile number instead'}
+          </button>
         </form>
       )}
 
       {state.searched && !hasBookings ? (
         <Notice>
-          No upcoming bookings for this unit.{' '}
+          No upcoming bookings found.{' '}
           <Link href="/book" className="underline">
             Book a slot
           </Link>
@@ -126,7 +163,7 @@ export function MyBookings() {
             <BookingCard
               key={booking.id}
               booking={booking}
-              unitKey={state.unitKey ?? ''}
+              owner={state.owner ?? ''}
               onCancelled={() =>
                 setCancelledIds((current) => [...current, booking.id])
               }
@@ -140,11 +177,11 @@ export function MyBookings() {
 
 function BookingCard({
   booking,
-  unitKey,
+  owner,
   onCancelled,
 }: {
   booking: BookingWithUnit;
-  unitKey: string;
+  owner: string;
   onCancelled: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -155,7 +192,7 @@ function BookingCard({
   function cancel() {
     const formData = new FormData();
     formData.set('bookingId', String(booking.id));
-    formData.set('unitKey', unitKey);
+    formData.set('owner', owner);
 
     startTransition(async () => {
       const result = await cancelBookingAction({}, formData);
@@ -181,6 +218,7 @@ function BookingCard({
               : `Court ${booking.courtNo}`}{' '}
             · <span className="font-mono tracking-widest">{booking.code}</span>
           </p>
+          <p className="text-xs text-muted">{booking.bookerName}</p>
         </div>
         <SportBadge sport={booking.sport as 'tennis' | 'pickleball'} />
       </div>

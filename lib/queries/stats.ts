@@ -7,6 +7,8 @@ export type MonthStats = {
   total: number;
   cancelled: number;
   noShow: number;
+  residentCount: number;
+  guestCount: number;
   bySport: { sport: string; count: number }[];
   bySlot: { slotIndex: number; count: number }[];
   topUnits: {
@@ -30,6 +32,8 @@ export async function getStats(
       total: sql<number>`count(*) filter (where ${bookings.status} <> 'cancelled')::int`,
       cancelled: sql<number>`count(*) filter (where ${bookings.status} = 'cancelled')::int`,
       noShow: sql<number>`count(*) filter (where ${bookings.status} = 'no_show')::int`,
+      residentCount: sql<number>`count(*) filter (where ${bookings.status} <> 'cancelled' and ${bookings.bookerType} = 'resident')::int`,
+      guestCount: sql<number>`count(*) filter (where ${bookings.status} <> 'cancelled' and ${bookings.bookerType} <> 'resident')::int`,
     })
     .from(bookings)
     .where(inRange(from, to));
@@ -74,6 +78,8 @@ export async function getStats(
     total: totals?.total ?? 0,
     cancelled: totals?.cancelled ?? 0,
     noShow: totals?.noShow ?? 0,
+    residentCount: totals?.residentCount ?? 0,
+    guestCount: totals?.guestCount ?? 0,
     bySport,
     bySlot: bySlot.map((row) => ({ slotIndex: row.slotIndex, count: row.count })),
     topUnits,
@@ -85,10 +91,11 @@ export type ExportRow = {
   slot: number;
   sport: string;
   court: number;
+  bookerType: string;
   name: string;
-  phase: string;
-  block: string;
-  lot: string;
+  phase: string | null;
+  block: string | null;
+  lot: string | null;
   phone: string;
   status: string;
   bookedAt: Date;
@@ -104,6 +111,7 @@ export async function getExportRows(
       slot: bookings.slotIndex,
       sport: bookings.sport,
       court: bookings.courtNo,
+      bookerType: bookings.bookerType,
       name: bookings.bookerName,
       phase: units.phase,
       block: units.block,
@@ -113,7 +121,8 @@ export async function getExportRows(
       bookedAt: bookings.createdAt,
     })
     .from(bookings)
-    .innerJoin(units, sql`${units.id} = ${bookings.unitId}`)
+    // Left join: guests have no unit row and must still appear in the export.
+    .leftJoin(units, sql`${units.id} = ${bookings.unitId}`)
     .where(inRange(from, to))
     .orderBy(bookings.bookingDate, bookings.slotIndex, bookings.courtNo);
 }

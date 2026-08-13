@@ -68,6 +68,10 @@ export default async function RulesPage() {
                   Each household may hold <strong>{limits.maxPerWeek}</strong>{' '}
                   bookings per week (Monday to Sunday).
                 </li>
+                <li>
+                  Guests are counted the same way, by mobile number instead of
+                  address.
+                </li>
               </>
             ) : (
               <li>There are no per-household limits at the moment.</li>
@@ -81,11 +85,17 @@ export default async function RulesPage() {
       </section>
 
       <section>
-        <SectionTitle>Booking with your address</SectionTitle>
+        <SectionTitle>Booking and finding your slot</SectionTitle>
         <Card>
           <p className="text-sm">
-            There is no password. Enter your <strong>phase, block and lot</strong>{' '}
-            with your name, and this phone will remember it for next time.
+            There is no password. <strong>Residents</strong> enter their phase,
+            block and lot with their name. <strong>Guests</strong> visiting from
+            outside the village enter a name and mobile number only.
+          </p>
+          <p className="mt-2 text-sm">
+            To see or cancel a booking, look it up with the{' '}
+            <strong>mobile number you booked with</strong> — or, for residents,
+            by address to see everything your household has booked.
           </p>
           <p className="mt-2 text-sm text-muted">
             Your mobile number is used only to reach you if the courts have to

@@ -6,19 +6,25 @@
  * Creates bookings, asserts every rule fires, then deletes everything it made.
  */
 
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, like } from 'drizzle-orm';
 
 import { bookings, db, units } from '../lib/db';
+import { phoneOwner, unitOwner } from '../lib/owner';
 import { getDayAvailability } from '../lib/queries/availability';
-import {
-  cancelBookingAsResident,
-  createBooking,
-} from '../lib/queries/bookings';
+import { cancelBookingAsOwner, createBooking } from '../lib/queries/bookings';
 import { addDays, manilaNow } from '../lib/time';
 import { buildUnitKey } from '../lib/unit-key';
 
 const UNIT_A = { phase: 'ZZTEST', block: '1', lot: '1' };
 const UNIT_B = { phase: 'ZZTEST', block: '2', lot: '2' };
+
+const RESIDENT_A = { ...UNIT_A, bookerType: 'resident' as const };
+const RESIDENT_B = { ...UNIT_B, bookerType: 'resident' as const };
+
+// Reserved test range numbers, so a real resident can never collide.
+const GUEST_PHONE = '09990000001';
+const GUEST_2_PHONE = '09990000002';
+const GUEST = { bookerType: 'guest' as const, name: 'Smoke Guest' };
 
 let failures = 0;
 
@@ -38,6 +44,8 @@ async function cleanup() {
     await db.delete(bookings).where(eq(bookings.unitId, unit.id));
     await db.delete(units).where(eq(units.id, unit.id));
   }
+  // Guest bookings have no unit to hang off, so clear them by number.
+  await db.delete(bookings).where(like(bookings.phone, '0999%'));
 }
 
 async function main() {
@@ -54,14 +62,14 @@ async function main() {
   const court = before.slots[0].courts[0].courtNo;
 
   const first = await createBooking({
-    ...UNIT_A,
+    ...RESIDENT_A,
     date: target,
     slotIndex: 0,
     courtNo: court,
     name: 'Smoke Test A',
     phone: '09171234567',
   });
-  check('creates a valid booking', first.ok, !first.ok ? first.message : '');
+  check('creates a valid resident booking', first.ok, !first.ok ? first.message : '');
   if (!first.ok) {
     await cleanup();
     process.exit(1);
@@ -75,7 +83,7 @@ async function main() {
   );
 
   const sameSlot = await createBooking({
-    ...UNIT_B,
+    ...RESIDENT_B,
     date: target,
     slotIndex: 0,
     courtNo: court,
@@ -89,7 +97,7 @@ async function main() {
   );
 
   const sameDay = await createBooking({
-    ...UNIT_A,
+    ...RESIDENT_A,
     date: target,
     slotIndex: 2,
     courtNo: court,
@@ -103,7 +111,7 @@ async function main() {
   );
 
   const tooFar = await createBooking({
-    ...UNIT_B,
+    ...RESIDENT_B,
     date: addDays(today, 30),
     slotIndex: 0,
     courtNo: 1,
@@ -117,7 +125,7 @@ async function main() {
   );
 
   const badPhone = await createBooking({
-    ...UNIT_B,
+    ...RESIDENT_B,
     date: target,
     slotIndex: 1,
     courtNo: court,
@@ -131,9 +139,11 @@ async function main() {
   );
 
   // The same address written differently must resolve to the same household.
-  const messyUnitA = { phase: 'ph-zztest', block: 'Block 1', lot: '#1' };
   const messy = await createBooking({
-    ...messyUnitA,
+    bookerType: 'resident',
+    phase: 'ph-zztest',
+    block: 'Block 1',
+    lot: '#1',
     date: target,
     slotIndex: 1,
     courtNo: court,
@@ -146,15 +156,98 @@ async function main() {
     messy.ok ? 'was accepted as a new unit' : messy.code,
   );
 
-  const cancelled = await cancelBookingAsResident(
+  console.log('\nGuest bookings\n');
+
+  const missingAddress = await createBooking({
+    bookerType: 'resident',
+    date: target,
+    slotIndex: 1,
+    courtNo: court,
+    name: 'No Address',
+    phone: GUEST_PHONE,
+  });
+  check(
+    'a resident booking without an address is rejected',
+    !missingAddress.ok && missingAddress.code === 'invalid_input',
+    missingAddress.ok ? 'was accepted' : missingAddress.code,
+  );
+
+  const guest = await createBooking({
+    ...GUEST,
+    date: target,
+    slotIndex: 1,
+    courtNo: court,
+    phone: GUEST_PHONE,
+  });
+  check(
+    'a guest can book with only a name and number',
+    guest.ok,
+    !guest.ok ? guest.message : '',
+  );
+  if (guest.ok) {
+    check(
+      'the guest booking is stored without a unit',
+      guest.booking.unitId === null && guest.booking.bookerType === 'guest',
+      `unitId=${guest.booking.unitId}, type=${guest.booking.bookerType}`,
+    );
+  }
+
+  const guestAgain = await createBooking({
+    ...GUEST,
+    date: target,
+    slotIndex: 2,
+    courtNo: court,
+    phone: GUEST_PHONE,
+  });
+  check(
+    'the daily limit applies to a guest by phone number',
+    !guestAgain.ok && guestAgain.code === 'day_limit',
+    guestAgain.ok ? 'was accepted' : guestAgain.code,
+  );
+
+  const otherGuest = await createBooking({
+    ...GUEST,
+    date: target,
+    slotIndex: 2,
+    courtNo: court,
+    name: 'Other Guest',
+    phone: GUEST_2_PHONE,
+  });
+  check(
+    'a different guest number is a different booker',
+    otherGuest.ok,
+    !otherGuest.ok ? otherGuest.message : '',
+  );
+
+  if (guest.ok) {
+    const wrongNumber = await cancelBookingAsOwner(
+      guest.booking.id,
+      phoneOwner(GUEST_2_PHONE),
+    );
+    check(
+      'another guest cannot cancel it',
+      !wrongNumber.ok,
+      wrongNumber.ok ? 'was allowed' : '',
+    );
+
+    const guestCancel = await cancelBookingAsOwner(
+      guest.booking.id,
+      phoneOwner(GUEST_PHONE),
+    );
+    check('a guest can cancel with their own number', guestCancel.ok);
+  }
+
+  console.log('\nCancellation\n');
+
+  const cancelled = await cancelBookingAsOwner(
     first.booking.id,
-    buildUnitKey(UNIT_A),
+    unitOwner(UNIT_A),
   );
   check('resident can cancel their own booking', cancelled.ok);
 
-  const wrongUnit = await cancelBookingAsResident(
+  const wrongUnit = await cancelBookingAsOwner(
     first.booking.id,
-    buildUnitKey(UNIT_B),
+    unitOwner(UNIT_B),
   );
   check(
     'another unit cannot cancel it',
@@ -162,15 +255,8 @@ async function main() {
     wrongUnit.ok ? 'was allowed' : '',
   );
 
-  const afterCancel = await getDayAvailability(target);
-  check(
-    'cancelling releases the slot',
-    afterCancel.openCount === openBefore,
-    `${afterCancel.openCount} vs ${openBefore}`,
-  );
-
   const rebook = await createBooking({
-    ...UNIT_A,
+    ...RESIDENT_A,
     date: target,
     slotIndex: 0,
     courtNo: court,

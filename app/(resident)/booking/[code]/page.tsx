@@ -4,8 +4,8 @@ import { PrimaryLink, SportBadge } from '@/components/ui';
 import { isValidBookingCode, normalizeBookingCode } from '@/lib/booking-code';
 import { getBookingByCode } from '@/lib/queries/bookings';
 import { getSlot } from '@/lib/schedule';
+import { bookerLabel } from '@/components/booker-label';
 import { formatLongDate } from '@/lib/time';
-import { formatUnitLabel } from '@/lib/unit-key';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,13 +74,10 @@ export default async function BookingConfirmationPage({
           />
           <Row label="Name" value={booking.bookerName} />
           <Row
-            label="Unit"
-            value={formatUnitLabel({
-              phase: booking.unitPhase,
-              block: booking.unitBlock,
-              lot: booking.unitLot,
-            })}
+            label={booking.bookerType === 'resident' ? 'Unit' : 'Booked as'}
+            value={bookerLabel(booking) ?? 'Guest'}
           />
+          <Row label="Mobile" value={booking.phone} />
           <Row label="Reference" value={booking.code} mono />
         </dl>
       </section>

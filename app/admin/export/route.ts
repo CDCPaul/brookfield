@@ -13,6 +13,7 @@ const HEADERS = [
   'Time',
   'Sport',
   'Court',
+  'Type',
   'Name',
   'Phase',
   'Block',
@@ -50,11 +51,13 @@ export async function GET(request: Request) {
         SLOTS[row.slot]?.label ?? String(row.slot),
         row.sport,
         String(row.court),
+        row.bookerType === 'resident' ? 'Resident' : 'Guest',
         row.name,
         // Normalized so the sheet can be sorted and grouped by household.
-        normalizePart(row.phase),
-        normalizePart(row.block),
-        normalizePart(row.lot),
+        // Guests have no unit, so these stay blank.
+        normalizePart(row.phase ?? ''),
+        normalizePart(row.block ?? ''),
+        normalizePart(row.lot ?? ''),
         // Leading apostrophe keeps Excel from dropping the leading zero.
         `'${row.phone}`,
         row.status,

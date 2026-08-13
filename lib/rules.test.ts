@@ -5,13 +5,13 @@ import {
   type BookingRequest,
   type Closure,
   DEFAULT_LIMITS,
-  EMPTY_UNIT,
+  EMPTY_BOOKER,
   bookableDates,
+  bookerUsage,
   checkBooking,
   computeDayAvailability,
   findClosure,
   isPastSlot,
-  unitUsage,
 } from './rules';
 import { getSlot } from './schedule';
 import type { ManilaMoment } from './time';
@@ -30,7 +30,7 @@ function request(overrides: Partial<BookingRequest> = {}): BookingRequest {
     limits: DEFAULT_LIMITS,
     closures: [],
     taken: [],
-    unit: EMPTY_UNIT,
+    booker: EMPTY_BOOKER,
     ...overrides,
   };
 }
@@ -77,15 +77,15 @@ describe('checkBooking', () => {
     });
   });
 
-  it('rejects a court that does not exist for the day’s sport', () => {
+  it('rejects a court that does not exist for that sport', () => {
     // Friday is tennis: only court 1 exists.
-    expect(checkBooking(request({ date: '2026-08-14', courtNo: 2 }))).toMatchObject(
-      { ok: false, code: 'invalid_court' },
-    );
-    // Thursday is pickleball: court 4 is fine.
     expect(
-      checkBooking(request({ date: '2026-08-20', courtNo: 4 })),
-    ).toEqual({ ok: true });
+      checkBooking(request({ date: '2026-08-14', courtNo: 2 })),
+    ).toMatchObject({ ok: false, code: 'invalid_court' });
+    // Thursday is pickleball: court 4 is fine.
+    expect(checkBooking(request({ date: '2026-08-20', courtNo: 4 }))).toEqual({
+      ok: true,
+    });
   });
 
   it('rejects an out-of-range slot index', () => {
@@ -95,52 +95,53 @@ describe('checkBooking', () => {
     });
   });
 
-  it('blocks blacklisted units', () => {
+  it('blocks a blacklisted booker', () => {
     const result = checkBooking(
-      request({ unit: { isBlocked: true, bookings: [] } }),
+      request({ booker: { isBlocked: true, bookings: [] } }),
     );
-    expect(result).toMatchObject({ ok: false, code: 'unit_blocked' });
+    expect(result).toMatchObject({ ok: false, code: 'booker_blocked' });
     // The reason is deliberately not disclosed to the resident.
     if (!result.ok) expect(result.message).not.toMatch(/blacklist/i);
   });
 
-  it('enforces one booking per unit per day', () => {
-    const result = checkBooking(
-      request({ unit: { isBlocked: false, bookings: [{ date: '2026-08-14' }] } }),
-    );
-    expect(result).toMatchObject({ ok: false, code: 'day_limit' });
+  it('enforces one booking per booker per day', () => {
+    const booker = { isBlocked: false, bookings: [{ date: '2026-08-14' }] };
+    expect(checkBooking(request({ booker }))).toMatchObject({
+      ok: false,
+      code: 'day_limit',
+    });
   });
 
-  it('enforces two bookings per unit per week', () => {
-    const unit = {
+  it('enforces two bookings per booker per week', () => {
+    const booker = {
       isBlocked: false,
       bookings: [{ date: '2026-08-10' }, { date: '2026-08-12' }],
     };
-    expect(checkBooking(request({ date: '2026-08-14', unit }))).toMatchObject({
+    expect(checkBooking(request({ date: '2026-08-14', booker }))).toMatchObject({
       ok: false,
       code: 'week_limit',
     });
   });
 
   it('resets the weekly allowance on Monday', () => {
-    const unit = {
+    const booker = {
       isBlocked: false,
       bookings: [{ date: '2026-08-15' }, { date: '2026-08-16' }],
     };
     // Fri 08-14 is still the old week; Mon 08-17 starts a fresh allowance.
-    expect(checkBooking(request({ date: '2026-08-14', unit }))).toMatchObject({
+    expect(checkBooking(request({ date: '2026-08-14', booker }))).toMatchObject({
       ok: false,
       code: 'week_limit',
     });
-    expect(checkBooking(request({ date: '2026-08-17', unit }))).toEqual({
+    expect(checkBooking(request({ date: '2026-08-17', booker }))).toEqual({
       ok: true,
     });
   });
 
   it('frees the allowance when a booking is cancelled', () => {
-    // Cancelled bookings are simply absent from unit.bookings.
-    const unit = { isBlocked: false, bookings: [{ date: '2026-08-10' }] };
-    expect(checkBooking(request({ date: '2026-08-14', unit }))).toEqual({
+    // Cancelled bookings are simply absent from booker.bookings.
+    const booker = { isBlocked: false, bookings: [{ date: '2026-08-10' }] };
+    expect(checkBooking(request({ date: '2026-08-14', booker }))).toEqual({
       ok: true,
     });
   });
@@ -166,8 +167,9 @@ describe('checkBooking', () => {
       courtNo: null,
       reason: 'Association event',
     };
-    expect(checkBooking(request({ slotIndex: 0, closures: [closure] })))
-      .toMatchObject({ ok: false, code: 'closed' });
+    expect(
+      checkBooking(request({ slotIndex: 0, closures: [closure] })),
+    ).toMatchObject({ ok: false, code: 'closed' });
     expect(checkBooking(request({ slotIndex: 1, closures: [closure] }))).toEqual(
       { ok: true },
     );
@@ -182,10 +184,14 @@ describe('checkBooking', () => {
       reason: 'Net replacement',
     };
     expect(
-      checkBooking(request({ date: '2026-08-20', courtNo: 2, closures: [closure] })),
+      checkBooking(
+        request({ date: '2026-08-20', courtNo: 2, closures: [closure] }),
+      ),
     ).toMatchObject({ ok: false, code: 'closed' });
     expect(
-      checkBooking(request({ date: '2026-08-20', courtNo: 3, closures: [closure] })),
+      checkBooking(
+        request({ date: '2026-08-20', courtNo: 3, closures: [closure] }),
+      ),
     ).toEqual({ ok: true });
   });
 
@@ -205,15 +211,17 @@ describe('checkBooking', () => {
   describe('when limits are switched off', () => {
     const off: BookingLimits = { ...DEFAULT_LIMITS, enabled: false };
 
-    it('drops the per-unit and advance-window limits', () => {
-      const unit = {
+    it('drops the per-booker and advance-window limits', () => {
+      const booker = {
         isBlocked: false,
         bookings: [{ date: '2026-08-14' }, { date: '2026-08-12' }],
       };
-      expect(checkBooking(request({ limits: off, unit }))).toEqual({ ok: true });
-      expect(checkBooking(request({ limits: off, date: '2026-09-30' }))).toEqual({
+      expect(checkBooking(request({ limits: off, booker }))).toEqual({
         ok: true,
       });
+      expect(checkBooking(request({ limits: off, date: '2026-09-30' }))).toEqual(
+        { ok: true },
+      );
     });
 
     it('still refuses past slots and taken slots', () => {
@@ -251,9 +259,9 @@ describe('findClosure', () => {
   });
 });
 
-describe('unitUsage', () => {
+describe('bookerUsage', () => {
   it('counts same-day and same-week bookings', () => {
-    const unit = {
+    const booker = {
       isBlocked: false,
       bookings: [
         { date: '2026-08-14' },
@@ -261,12 +269,21 @@ describe('unitUsage', () => {
         { date: '2026-08-17' }, // next week
       ],
     };
-    expect(unitUsage(unit, '2026-08-14', DEFAULT_LIMITS)).toEqual({
+    expect(bookerUsage(booker, '2026-08-14', DEFAULT_LIMITS)).toEqual({
       dayUsed: 1,
       dayMax: 1,
       weekUsed: 2,
       weekMax: 2,
     });
+  });
+
+  it('is identical for residents and guests — only the bookings matter', () => {
+    const bookings = [{ date: '2026-08-14' }];
+    expect(
+      bookerUsage({ isBlocked: false, bookings }, '2026-08-14', DEFAULT_LIMITS),
+    ).toEqual(
+      bookerUsage({ isBlocked: false, bookings }, '2026-08-14', DEFAULT_LIMITS),
+    );
   });
 });
 

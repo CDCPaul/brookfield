@@ -1,16 +1,29 @@
 'use client';
 
-import { useActionState, useEffect, useRef } from 'react';
+import {
+  useActionState,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { useFormStatus } from 'react-dom';
 
 import { createBookingAction, type BookingFormState } from '@/app/actions';
 import { Field, Notice, PrimaryButton, inputClass } from '@/components/ui';
-import { STORED_UNIT_FIELDS, loadUnit, mergeUnit } from '@/lib/stored-unit';
+import type { BookerType } from '@/lib/owner';
+import {
+  BOOKER_FIELDS,
+  loadBooker,
+  mergeBooker,
+} from '@/lib/stored-booker';
 
 /**
- * The fields are uncontrolled: the remembered details are written straight into
- * the DOM after mount. Rendering them as React state would either mismatch
- * during hydration (the server cannot see localStorage) or need a second render.
+ * Two steps: who is booking, then their details.
+ *
+ * The fields are uncontrolled — the remembered details are written straight
+ * into the DOM after mount, because rendering them as React state would
+ * mismatch during hydration (the server cannot see localStorage).
  */
 export function BookingForm({
   date,
@@ -21,18 +34,122 @@ export function BookingForm({
   slotIndex: number;
   courtNo: number;
 }) {
+  const [bookerType, setBookerType] = useState<BookerType | null>(null);
+  const remembered = useRememberedBookerType();
+
+  if (bookerType === null) {
+    return (
+      <BookerTypeStep onChoose={setBookerType} suggested={remembered} />
+    );
+  }
+
+  return (
+    <DetailsStep
+      date={date}
+      slotIndex={slotIndex}
+      courtNo={courtNo}
+      bookerType={bookerType}
+      onBack={() => setBookerType(null)}
+    />
+  );
+}
+
+// localStorage is an external store, so it is read through the API meant for
+// one rather than copied into state from an effect.
+const NO_OP_SUBSCRIBE = () => () => {};
+
+function useRememberedBookerType(): BookerType | null {
+  return useSyncExternalStore(
+    NO_OP_SUBSCRIBE,
+    () => loadBooker()?.bookerType ?? null,
+    () => null,
+  );
+}
+
+function BookerTypeStep({
+  onChoose,
+  suggested,
+}: {
+  onChoose: (type: BookerType) => void;
+  suggested: BookerType | null;
+}) {
+  return (
+    <div className="space-y-3">
+      <h2 className="text-sm font-semibold">Who is booking?</h2>
+
+      <button
+        type="button"
+        onClick={() => onChoose('resident')}
+        className="flex w-full items-center gap-3 rounded-2xl border border-edge bg-surface p-4 text-left active:bg-background"
+      >
+        <span aria-hidden="true" className="text-2xl">
+          🏡
+        </span>
+        <span className="flex-1">
+          <span className="block text-base font-semibold">
+            Brookfield resident
+          </span>
+          <span className="block text-sm text-muted">
+            I live in the village
+          </span>
+        </span>
+        {suggested === 'resident' ? (
+          <span className="rounded-full bg-court-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-court-dark dark:bg-court/20 dark:text-court-soft">
+            Last used
+          </span>
+        ) : null}
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onChoose('guest')}
+        className="flex w-full items-center gap-3 rounded-2xl border border-edge bg-surface p-4 text-left active:bg-background"
+      >
+        <span aria-hidden="true" className="text-2xl">
+          👋
+        </span>
+        <span className="flex-1">
+          <span className="block text-base font-semibold">Guest</span>
+          <span className="block text-sm text-muted">
+            I am visiting from outside
+          </span>
+        </span>
+        {suggested === 'guest' ? (
+          <span className="rounded-full bg-court-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-court-dark dark:bg-court/20 dark:text-court-soft">
+            Last used
+          </span>
+        ) : null}
+      </button>
+    </div>
+  );
+}
+
+function DetailsStep({
+  date,
+  slotIndex,
+  courtNo,
+  bookerType,
+  onBack,
+}: {
+  date: string;
+  slotIndex: number;
+  courtNo: number;
+  bookerType: BookerType;
+  onBack: () => void;
+}) {
   const [state, formAction] = useActionState<BookingFormState, FormData>(
     createBookingAction,
     {},
   );
   const formRef = useRef<HTMLFormElement>(null);
+  const isResident = bookerType === 'resident';
 
   useEffect(() => {
-    const stored = loadUnit();
+    const stored = loadBooker();
     const form = formRef.current;
     if (!stored || !form) return;
 
-    for (const field of STORED_UNIT_FIELDS) {
+    for (const field of BOOKER_FIELDS) {
       const input = form.elements.namedItem(field);
       if (input instanceof HTMLInputElement && input.value === '') {
         input.value = stored[field];
@@ -42,12 +159,17 @@ export function BookingForm({
 
   function remember(form: HTMLFormElement) {
     const data = new FormData(form);
-    mergeUnit({
+    mergeBooker({
+      bookerType,
       name: String(data.get('name') ?? ''),
-      phase: String(data.get('phase') ?? ''),
-      block: String(data.get('block') ?? ''),
-      lot: String(data.get('lot') ?? ''),
       phone: String(data.get('phone') ?? ''),
+      ...(isResident
+        ? {
+            phase: String(data.get('phase') ?? ''),
+            block: String(data.get('block') ?? ''),
+            lot: String(data.get('lot') ?? ''),
+          }
+        : {}),
     });
   }
 
@@ -61,6 +183,22 @@ export function BookingForm({
       <input type="hidden" name="date" value={date} />
       <input type="hidden" name="slot" value={slotIndex} />
       <input type="hidden" name="court" value={courtNo} />
+      <input type="hidden" name="bookerType" value={bookerType} />
+
+      <div className="flex items-center justify-between rounded-xl border border-edge bg-surface px-3.5 py-2.5">
+        <span className="text-sm">
+          <span aria-hidden="true">{isResident ? '🏡 ' : '👋 '}</span>
+          Booking as{' '}
+          <strong>{isResident ? 'a resident' : 'a guest'}</strong>
+        </span>
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-sm font-medium text-court underline"
+        >
+          Change
+        </button>
+      </div>
 
       {state.error ? <Notice tone="error">{state.error}</Notice> : null}
 
@@ -68,34 +206,43 @@ export function BookingForm({
         <input name="name" required autoComplete="name" className={inputClass} />
       </Field>
 
-      <div className="grid grid-cols-3 gap-2">
-        <Field label="Phase">
-          <input
-            name="phase"
-            required
-            autoCapitalize="characters"
-            className={inputClass}
-          />
-        </Field>
-        <Field label="Block">
-          <input
-            name="block"
-            required
-            autoCapitalize="characters"
-            className={inputClass}
-          />
-        </Field>
-        <Field label="Lot">
-          <input
-            name="lot"
-            required
-            autoCapitalize="characters"
-            className={inputClass}
-          />
-        </Field>
-      </div>
+      {isResident ? (
+        <div className="grid grid-cols-3 gap-2">
+          <Field label="Phase">
+            <input
+              name="phase"
+              required
+              autoCapitalize="characters"
+              className={inputClass}
+            />
+          </Field>
+          <Field label="Block">
+            <input
+              name="block"
+              required
+              autoCapitalize="characters"
+              className={inputClass}
+            />
+          </Field>
+          <Field label="Lot">
+            <input
+              name="lot"
+              required
+              autoCapitalize="characters"
+              className={inputClass}
+            />
+          </Field>
+        </div>
+      ) : null}
 
-      <Field label="Mobile number" hint="Used only if the courts have to close.">
+      <Field
+        label="Mobile number"
+        hint={
+          isResident
+            ? 'Used only if the courts have to close.'
+            : 'This is how you will find and cancel your booking.'
+        }
+      >
         <input
           name="phone"
           required
