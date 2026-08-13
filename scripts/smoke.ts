@@ -146,6 +146,20 @@ async function main() {
     guestFree.ok ? 'was accepted' : guestFree.code,
   );
 
+  const missingAddress = await createBooking({
+    bookerType: 'resident',
+    date: target,
+    slotIndex: 1,
+    optionKey: freeOption,
+    name: 'No Address',
+    phone: PHONE_B,
+  });
+  check(
+    'a free booking still needs the household address',
+    !missingAddress.ok && missingAddress.code === 'invalid_input',
+    missingAddress.ok ? 'was accepted' : missingAddress.code,
+  );
+
   console.log('\nShared courts\n');
 
   const pickleball = await createBooking({
@@ -183,8 +197,9 @@ async function main() {
     );
   }
 
+  // Paid hours are not rationed, so the address is not asked for and not kept.
   const otherCourt = await createBooking({
-    ...RESIDENT_B,
+    bookerType: 'resident',
     date: target,
     slotIndex: DAY_SLOT,
     optionKey: 'pb4',
@@ -192,10 +207,17 @@ async function main() {
     phone: PHONE_B,
   });
   check(
-    'a different pickleball court is still free',
+    'a resident can book a paid court without an address',
     otherCourt.ok,
     !otherCourt.ok ? otherCourt.message : '',
   );
+  if (otherCourt.ok) {
+    check(
+      'and no household is recorded against it',
+      otherCourt.booking.unitId === null,
+      `unitId=${otherCourt.booking.unitId}`,
+    );
+  }
 
   console.log('\nBasketball\n');
 

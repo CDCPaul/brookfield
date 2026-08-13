@@ -59,6 +59,9 @@ export function BookingForm({
       slotIndex={slotIndex}
       optionKey={optionKey}
       bookerType={bookerType}
+      // The address rations free court time. Paid hours are not rationed, so
+      // asking for it would be collecting something nothing uses.
+      needsAddress={price === 0}
       onBack={() => setBookerType(null)}
     />
   );
@@ -152,12 +155,14 @@ function DetailsStep({
   slotIndex,
   optionKey,
   bookerType,
+  needsAddress,
   onBack,
 }: {
   date: string;
   slotIndex: number;
   optionKey: string;
   bookerType: BookerType;
+  needsAddress: boolean;
   onBack: () => void;
 }) {
   const [state, formAction] = useActionState<BookingFormState, FormData>(
@@ -166,6 +171,7 @@ function DetailsStep({
   );
   const formRef = useRef<HTMLFormElement>(null);
   const isResident = bookerType === 'resident';
+  const showAddress = isResident && needsAddress;
 
   useEffect(() => {
     const stored = loadBooker();
@@ -186,7 +192,7 @@ function DetailsStep({
       bookerType,
       name: String(data.get('name') ?? ''),
       phone: String(data.get('phone') ?? ''),
-      ...(isResident
+      ...(showAddress
         ? {
             phase: String(data.get('phase') ?? ''),
             block: String(data.get('block') ?? ''),
@@ -229,7 +235,7 @@ function DetailsStep({
         <input name="name" required autoComplete="name" className={inputClass} />
       </Field>
 
-      {isResident ? (
+      {showAddress ? (
         <div className="grid grid-cols-3 gap-2">
           <Field label="Phase">
             <input
@@ -260,11 +266,7 @@ function DetailsStep({
 
       <Field
         label="Mobile number"
-        hint={
-          isResident
-            ? 'Used only if the courts have to close.'
-            : 'This is how you will find and cancel your booking.'
-        }
+        hint="This is how you will find, pay for and cancel your booking."
       >
         <input
           name="phone"

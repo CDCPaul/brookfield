@@ -15,7 +15,6 @@ import {
   cancelBookingAsOwner,
   createBooking,
   getUpcomingBookingsForOwner,
-  submitPaymentReference,
   type BookingWithUnit,
 } from '@/lib/queries/bookings';
 import { manilaNow } from '@/lib/time';
@@ -122,26 +121,3 @@ export async function cancelBookingAction(
   return { cancelled: true };
 }
 
-export type PaymentState = { error?: string; submitted?: boolean };
-
-export async function submitPaymentAction(
-  _previous: PaymentState,
-  formData: FormData,
-): Promise<PaymentState> {
-  const bookingId = Number(formData.get('bookingId'));
-  const owner = decodeOwner(text(formData, 'owner'));
-
-  if (!Number.isInteger(bookingId) || !owner) {
-    return { error: 'Could not identify that booking.' };
-  }
-
-  const result = await submitPaymentReference(
-    bookingId,
-    owner,
-    text(formData, 'reference'),
-  );
-  if (!result.ok) return { error: result.message };
-
-  revalidatePath('/my');
-  return { submitted: true };
-}

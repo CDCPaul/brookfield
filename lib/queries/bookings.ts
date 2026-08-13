@@ -24,7 +24,12 @@ import {
   type RejectionCode,
   checkBooking,
 } from '@/lib/rules';
-import { isValidSlotIndex, sportForDate } from '@/lib/schedule';
+import { findOption, priceForOption } from '@/lib/courts';
+import {
+  isValidSlotIndex,
+  sportForDate,
+  tierForSlot,
+} from '@/lib/schedule';
 import {
   addDays,
   isValidDateStr,
@@ -177,21 +182,35 @@ export async function createBooking(
     return invalid('Please choose a time slot.');
   }
 
-  const isResident = input.bookerType === 'resident';
+  const sport = sportForDate(input.date);
+  const moment = manilaNow(now);
+  const { limits, schedule, pricing, courts } = await getSettings();
+
   const unitInput: UnitInput = {
     phase: input.phase ?? '',
     block: input.block ?? '',
     lot: input.lot ?? '',
   };
 
-  if (isResident && !isCompleteUnit(unitInput)) {
+  // The household address exists to ration free court time. Paid hours are not
+  // rationed, so it is not asked for and bookings there are keyed on the phone
+  // number like anyone else's.
+  const option = findOption(input.optionKey);
+  const tier = tierForSlot(input.slotIndex, schedule);
+  const isFree =
+    option !== null &&
+    tier !== null &&
+    priceForOption(option, tier, pricing) === 0;
+
+  // Only residents are asked for an address, and only for free court time.
+  // A guest here falls through so the rules can explain that the free morning
+  // is not theirs to book, rather than demanding an address they do not have.
+  if (isFree && input.bookerType === 'resident' && !isCompleteUnit(unitInput)) {
     return invalid('Please fill in your phase, block and lot.');
   }
 
-  const sport = sportForDate(input.date);
-  const moment = manilaNow(now);
-  const { limits, schedule, pricing, courts } = await getSettings();
-  const owner: Owner = isResident
+  const hasUnit = isCompleteUnit(unitInput);
+  const owner: Owner = hasUnit
     ? unitOwner(unitInput)
     : phoneOwner(input.phone);
 
@@ -220,8 +239,8 @@ export async function createBooking(
     return { ok: false, code: verdict.code, message: verdict.message };
   }
 
-  const unit = isResident ? await findOrCreateUnit(unitInput) : null;
-  const option = verdict.option;
+  const unit = hasUnit ? await findOrCreateUnit(unitInput) : null;
+  const booked = verdict.option;
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
     let created: Booking;
@@ -233,8 +252,8 @@ export async function createBooking(
           bookingDate: input.date,
           slotIndex: input.slotIndex,
           sport,
-          courtOption: option.key,
-          courtNo: legacyCourtNo(option.key),
+          courtOption: booked.key,
+          courtNo: legacyCourtNo(booked.key),
           bookerType: input.bookerType,
           tier: verdict.tier,
           amount: verdict.price,
@@ -257,7 +276,7 @@ export async function createBooking(
     // same court at the same moment.
     try {
       await db.insert(bookingResources).values(
-        option.resources.map((resourceKey) => ({
+        booked.resources.map((resourceKey) => ({
           bookingId: created.id,
           bookingDate: input.date,
           slotIndex: input.slotIndex,
@@ -434,42 +453,6 @@ export async function cancelBookingAsOwner(
     })
     .where(and(eq(bookings.id, bookingId), LIVE));
   await releaseResources(bookingId);
-
-  return { ok: true };
-}
-
-/** The payer types in the GCash reference so the association can match it. */
-export async function submitPaymentReference(
-  bookingId: number,
-  owner: Owner,
-  reference: string,
-): Promise<MutationResult> {
-  const trimmed = reference.trim();
-  if (trimmed.length < 4) {
-    return { ok: false, message: 'Please enter the full reference number.' };
-  }
-
-  const identity =
-    owner.kind === 'unit'
-      ? eq(units.unitKey, owner.key)
-      : eq(bookings.phone, owner.key);
-
-  const [row] = await db
-    .select({ id: bookings.id, amount: bookings.amount })
-    .from(bookings)
-    .leftJoin(units, eq(bookings.unitId, units.id))
-    .where(and(eq(bookings.id, bookingId), identity, LIVE))
-    .limit(1);
-
-  if (!row) return { ok: false, message: 'Booking not found.' };
-  if (row.amount <= 0) {
-    return { ok: false, message: 'This booking is free — nothing to pay.' };
-  }
-
-  await db
-    .update(bookings)
-    .set({ paymentRef: trimmed, paymentStatus: 'submitted' })
-    .where(eq(bookings.id, bookingId));
 
   return { ok: true };
 }

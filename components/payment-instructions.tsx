@@ -30,8 +30,8 @@ export function PaymentInstructions({
       </dl>
 
       <p className="mt-3 text-sm text-muted">
-        After sending, enter the GCash reference number below so the association
-        can match your payment.
+        After sending, upload a screenshot of the GCash receipt below so the
+        association can check it.
       </p>
 
       {payment.notes ? (

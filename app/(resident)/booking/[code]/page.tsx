@@ -5,7 +5,6 @@ import { bookerLabel } from '@/components/booker-label';
 import { PaymentBadge, StatusBadge } from '@/components/booking-status';
 import { PaymentInstructions } from '@/components/payment-instructions';
 import { PaymentProofUpload } from '@/components/payment-proof-upload';
-import { PaymentReferenceForm } from '@/components/payment-reference-form';
 import { Card, Notice, PrimaryLink, SportBadge } from '@/components/ui';
 import { isValidBookingCode, normalizeBookingCode } from '@/lib/booking-code';
 import { encodeOwner, phoneOwner, type Owner } from '@/lib/owner';
@@ -117,20 +116,18 @@ export default async function BookingPage({
             />
 
             <Card>
-              <div className="space-y-4">
-                {isBlobConfigured() ? (
-                  <PaymentProofUpload
-                    bookingId={booking.id}
-                    owner={owner}
-                    existingUrl={booking.paymentProofUrl}
-                  />
-                ) : null}
-                <PaymentReferenceForm
+              {isBlobConfigured() ? (
+                <PaymentProofUpload
                   bookingId={booking.id}
                   owner={owner}
-                  existing={booking.paymentRef}
+                  existingUrl={booking.paymentProofUrl}
                 />
-              </div>
+              ) : (
+                <p className="text-sm text-muted">
+                  Send the fee and keep your GCash receipt. The association will
+                  confirm the booking once the payment shows up.
+                </p>
+              )}
             </Card>
           </>
         ) : (
@@ -184,10 +181,10 @@ function subtitle(
   if (booking.status === 'rejected') return 'The slot has been released.';
   if (booking.status === 'cancelled') return 'This slot has been released.';
   if (awaitingCheck) {
-    return 'We have your payment details. The association will confirm the booking shortly.';
+    return 'We have your receipt. The association will confirm the booking shortly.';
   }
   if (owes) {
-    return 'Your slot is held while you pay. Send the fee, then upload your receipt below.';
+    return 'Your slot is held while you pay. Send the fee, then upload the GCash receipt below.';
   }
   return 'The association will review it shortly.';
 }

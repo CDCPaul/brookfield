@@ -177,14 +177,15 @@ export default async function RulesPage() {
         <SectionTitle>Finding your booking</SectionTitle>
         <Card>
           <p className="text-sm">
-            There is no password. <strong>Residents</strong> enter their phase,
-            block and lot with their name. <strong>Guests</strong> enter a name
-            and mobile number only.
+            There is no password. For the <strong>free morning</strong>,
+            residents give their phase, block and lot — that is how the daily
+            and weekly limits are shared out fairly. For <strong>paid hours</strong>,
+            everyone gives a name and mobile number only.
           </p>
           <p className="mt-2 text-sm">
             To see, pay for or cancel a booking, look it up with the{' '}
-            <strong>mobile number you booked with</strong> — or, for residents,
-            by address to see everything your household has booked.
+            <strong>mobile number you booked with</strong> — or by address to
+            see the free bookings your household holds.
           </p>
           <p className="mt-2 text-sm text-muted">
             Your mobile number is used only to reach you if the courts have to

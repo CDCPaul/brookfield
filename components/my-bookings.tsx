@@ -11,7 +11,6 @@ import {
 import { PaymentBadge, StatusBadge } from '@/components/booking-status';
 import { PaymentInstructions } from '@/components/payment-instructions';
 import { PaymentProofUpload } from '@/components/payment-proof-upload';
-import { PaymentReferenceForm } from '@/components/payment-reference-form';
 import {
   Field,
   Notice,
@@ -263,11 +262,6 @@ function BookingCard({
               existingUrl={booking.paymentProofUrl}
             />
           ) : null}
-          <PaymentReferenceForm
-            bookingId={booking.id}
-            owner={owner}
-            existing={booking.paymentRef}
-          />
         </div>
       ) : null}
 

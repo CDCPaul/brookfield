@@ -43,7 +43,7 @@ export function StatusBadge({ status }: { status: string }) {
 
 const PAYMENT_LABELS: Record<string, string> = {
   unpaid: 'Payment due',
-  submitted: 'Payment sent — being checked',
+  submitted: 'Receipt sent — being checked',
   paid: 'Paid',
 };
 
