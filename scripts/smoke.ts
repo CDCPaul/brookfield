@@ -198,7 +198,7 @@ async function main() {
     name: 'Smoke Test B',
     phone: PHONE_B,
   });
-  const expectedNight = sport === 'tennis' ? 400 : 250;
+  const expectedNight = sport === 'tennis' ? 400 : 350;
   check(
     `the evening fee is higher (${expectedNight})`,
     night.ok && night.booking.amount === expectedNight,

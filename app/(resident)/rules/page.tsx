@@ -12,9 +12,9 @@ export default async function RulesPage() {
   return (
     <div className="space-y-6">
       <section>
-        <h1 className="text-2xl font-bold tracking-tight">How it works</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Court rules</h1>
         <p className="mt-1 text-sm text-muted">
-          Court hours and rules for Brookfield Subdivision.
+          To keep the courts safe, respectful and enjoyable for everyone.
         </p>
       </section>
 
@@ -26,16 +26,12 @@ export default async function RulesPage() {
               <span aria-hidden="true">🎾</span>
               <span>
                 <strong>Tennis</strong> — Monday, Wednesday, Friday and Sunday.
-                <br />
-                <span className="text-muted">1 court.</span>
               </span>
             </li>
             <li className="flex items-start gap-3">
               <span aria-hidden="true">🏓</span>
               <span>
                 <strong>Pickleball</strong> — Tuesday, Thursday and Saturday.
-                <br />
-                <span className="text-muted">4 courts.</span>
               </span>
             </li>
           </ul>
@@ -60,8 +56,8 @@ export default async function RulesPage() {
                 Daytime · {tierRangeLabel('day', schedule)}
               </p>
               <p className="text-muted">
-                Tennis {formatPeso(pricing.day.tennis)} · Pickleball{' '}
-                {formatPeso(pricing.day.pickleball)} per hour
+                Pickleball {formatPeso(pricing.day.pickleball)} · Tennis{' '}
+                {formatPeso(pricing.day.tennis)} per court, per hour
               </p>
             </div>
 
@@ -70,80 +66,120 @@ export default async function RulesPage() {
                 Evening · {tierRangeLabel('night', schedule)}
               </p>
               <p className="text-muted">
-                Tennis {formatPeso(pricing.night.tennis)} · Pickleball{' '}
-                {formatPeso(pricing.night.pickleball)} per hour
+                Pickleball {formatPeso(pricing.night.pickleball)} · Tennis{' '}
+                {formatPeso(pricing.night.tennis)} per court, per hour
               </p>
             </div>
-
-            <p className="border-t border-edge pt-3 text-muted">
-              Paid hours are open to residents and guests alike. Fees are per
-              court, per hour.
-            </p>
           </div>
+        </Card>
+      </section>
+
+      <section>
+        <SectionTitle>Court etiquette</SectionTitle>
+        <Card>
+          <ul className="space-y-2 text-sm">
+            <li>Court access is for confirmed bookings only.</li>
+            <li>Arrive 10–15 minutes early.</li>
+            <li>
+              Your playing time starts and ends according to your reserved slot.
+            </li>
+            <li>
+              Vacate the court promptly so the next players can begin on time.
+            </li>
+            <li>Respect fellow players, staff and spectators at all times.</li>
+            <li>
+              Unsportsmanlike conduct, abusive language or aggressive behaviour
+              will not be tolerated.
+            </li>
+          </ul>
         </Card>
       </section>
 
       <section>
         <SectionTitle>On the court</SectionTitle>
         <Card>
-          <ul className="space-y-2.5 text-sm">
+          <ul className="space-y-2 text-sm">
+            <li>Wear proper non-marking athletic or court shoes.</li>
             <li>
-              <strong>Water and sports drinks only.</strong> No other food or
-              drink is allowed on the courts.
+              <strong>
+                Only water or sports drinks, in spill-proof containers.
+              </strong>{' '}
+              No other food or drink courtside.
             </li>
-            <li>Take your bottles and rubbish with you when you leave.</li>
-            <li>Non-marking court shoes only.</li>
+            <li>Keep the court clean. Dispose of trash in the bins provided.</li>
+            <li>Climbing, hanging or sitting on the net is prohibited.</li>
             <li>
-              Finish on time — the next players are waiting for their slot.
+              Players are responsible for any damage caused by misuse of the
+              facility or equipment.
             </li>
           </ul>
         </Card>
       </section>
 
       <section>
-        <SectionTitle>Booking rules</SectionTitle>
+        <SectionTitle>Safety</SectionTitle>
         <Card>
-          <ul className="space-y-2.5 text-sm">
+          <ul className="space-y-2 text-sm">
             <li>
-              Every booking is a <strong>request</strong>. The association
-              reviews it and you will see it confirmed under My bookings.
+              Play at your own risk. Management is not liable for injuries,
+              accidents or loss of personal belongings.
+            </li>
+            <li>Warm up before playing, and stop immediately if injured.</li>
+            <li>Children must always be supervised by a responsible adult.</li>
+          </ul>
+        </Card>
+      </section>
+
+      <section>
+        <SectionTitle>Booking and payment</SectionTitle>
+        <Card>
+          <ul className="space-y-2 text-sm">
+            <li>
+              Every booking is a <strong>request</strong>. It is confirmed only
+              once the association has verified your payment.
+            </li>
+            <li>
+              A requested slot is held for <strong>24 hours</strong> while
+              payment is verified. Unpaid requests are released after that.
+            </li>
+            <li>
+              <strong>No cash.</strong> Payment must be made through the approved
+              cashless method.
+            </li>
+            <li>
+              <strong>No refunds for weather.</strong> If rain, a power outage or
+              anything else beyond the management&apos;s control disrupts your
+              booking, it will be rescheduled subject to court availability.
+            </li>
+            <li>
+              No-shows are treated as a completed booking and are
+              non-refundable.
             </li>
             {limits.enabled ? (
               <>
-                <li>
-                  Bookings open <strong>{limits.advanceDays} days</strong> ahead.
-                </li>
+                <li>Bookings open {limits.advanceDays} days ahead.</li>
                 <li>
                   In the free morning, each household may hold{' '}
-                  <strong>{limits.maxPerDay}</strong>{' '}
+                  {limits.maxPerDay}{' '}
                   {limits.maxPerDay === 1 ? 'booking' : 'bookings'} per day and{' '}
-                  <strong>{limits.maxPerWeek}</strong> per week (Monday to
-                  Sunday).
+                  {limits.maxPerWeek} per week (Monday to Sunday). Guests are
+                  counted by mobile number instead of address. Paid hours are not
+                  limited.
                 </li>
-                <li>
-                  Guests are counted the same way, by mobile number instead of
-                  address.
-                </li>
-                <li>Paid hours are not limited.</li>
               </>
-            ) : (
-              <li>There are no per-household limits at the moment.</li>
-            )}
+            ) : null}
             <li>Cancel early if you cannot make it — someone else can use it.</li>
-            <li>
-              Repeated no-shows may lead the association to suspend a unit.
-            </li>
           </ul>
         </Card>
       </section>
 
       <section>
-        <SectionTitle>Booking and finding your slot</SectionTitle>
+        <SectionTitle>Finding your booking</SectionTitle>
         <Card>
           <p className="text-sm">
             There is no password. <strong>Residents</strong> enter their phase,
-            block and lot with their name. <strong>Guests</strong> visiting from
-            outside the village enter a name and mobile number only.
+            block and lot with their name. <strong>Guests</strong> enter a name
+            and mobile number only.
           </p>
           <p className="mt-2 text-sm">
             To see, pay for or cancel a booking, look it up with the{' '}
@@ -154,6 +190,22 @@ export default async function RulesPage() {
             Your mobile number is used only to reach you if the courts have to
             close for weather or maintenance.
           </p>
+        </Card>
+      </section>
+
+      <section>
+        <SectionTitle>Facility policy</SectionTitle>
+        <Card>
+          <ul className="space-y-2 text-sm">
+            <li>
+              Management reserves the right to refuse entry to, or remove, any
+              person who violates these rules.
+            </li>
+            <li>
+              These rules may be updated without prior notice to ensure the
+              safety and enjoyment of all players.
+            </li>
+          </ul>
         </Card>
       </section>
 

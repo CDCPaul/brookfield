@@ -95,7 +95,7 @@ describe('pricing', () => {
   it('charges per sport and tier', () => {
     expect(priceFor('day', 'pickleball', DEFAULT_PRICING)).toBe(200);
     expect(priceFor('day', 'tennis', DEFAULT_PRICING)).toBe(350);
-    expect(priceFor('night', 'pickleball', DEFAULT_PRICING)).toBe(250);
+    expect(priceFor('night', 'pickleball', DEFAULT_PRICING)).toBe(350);
     expect(priceFor('night', 'tennis', DEFAULT_PRICING)).toBe(400);
   });
 

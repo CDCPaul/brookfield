@@ -80,10 +80,15 @@ export const DEFAULT_SCHEDULE: ScheduleConfig = {
 
 export type Pricing = Record<Exclude<Tier, 'free'>, Record<Sport, number>>;
 
-/** Pesos per one-hour slot. */
+/**
+ * Pesos per one-hour slot.
+ *
+ * Pickleball matches the published BrookSide Bounce rate card. Tennis has no
+ * published rate yet — these are placeholders for the association to set.
+ */
 export const DEFAULT_PRICING: Pricing = {
   day: { pickleball: 200, tennis: 350 },
-  night: { pickleball: 250, tennis: 400 },
+  night: { pickleball: 350, tennis: 400 },
 };
 
 /** The tier a slot falls into, or null when the courts are closed. */

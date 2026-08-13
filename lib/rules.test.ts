@@ -108,7 +108,7 @@ describe('checkBooking', () => {
     ).toEqual({ ok: true, tier: 'day', price: 200 });
     expect(
       checkBooking(request({ date: '2026-08-20', slotIndex: NIGHT_SLOT })),
-    ).toEqual({ ok: true, tier: 'night', price: 250 });
+    ).toEqual({ ok: true, tier: 'night', price: 350 });
   });
 
   it('applies the tier boundaries exactly', () => {
@@ -429,7 +429,7 @@ describe('computeDayAvailability', () => {
 
   it('prices each group for the day sport', () => {
     const day = computeDayAvailability({ ...base, date: '2026-08-13' });
-    expect(day.groups.map((group) => group.price)).toEqual([0, 200, 250]);
+    expect(day.groups.map((group) => group.price)).toEqual([0, 200, 350]);
 
     const tennis = computeDayAvailability({ ...base, date: '2026-08-14' });
     expect(tennis.groups.map((group) => group.price)).toEqual([0, 350, 400]);
