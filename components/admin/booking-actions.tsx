@@ -5,10 +5,17 @@ import { useState, useTransition } from 'react';
 import {
   adminCancelBookingAction,
   adminMarkNoShowAction,
+  markPaidAction,
 } from '@/app/admin/actions';
 import { inputClass } from '@/components/ui';
 
-export function BookingActions({ bookingId }: { bookingId: number }) {
+export function BookingActions({
+  bookingId,
+  showMarkPaid = false,
+}: {
+  bookingId: number;
+  showMarkPaid?: boolean;
+}) {
   const [mode, setMode] = useState<'idle' | 'cancel'>('idle');
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +67,17 @@ export function BookingActions({ bookingId }: { bookingId: number }) {
   return (
     <div className="mt-2">
       {error ? <p className="mb-2 text-xs text-red-600">{error}</p> : null}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
+        {showMarkPaid ? (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => run(markPaidAction)}
+            className="flex-1 rounded-lg bg-court px-3 py-2 text-xs font-semibold text-white active:bg-court-dark disabled:opacity-50"
+          >
+            {pending ? 'Saving…' : 'Mark paid'}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() => setMode('cancel')}

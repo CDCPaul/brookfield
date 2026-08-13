@@ -1,25 +1,25 @@
 import Link from 'next/link';
 
 import { Card, SectionTitle } from '@/components/ui';
-import { getLimits } from '@/lib/queries/settings';
-import { SLOTS } from '@/lib/schedule';
+import { getSettings } from '@/lib/queries/settings';
+import { formatPeso, tierRangeLabel } from '@/lib/schedule';
 
 export const dynamic = 'force-dynamic';
 
 export default async function RulesPage() {
-  const limits = await getLimits();
+  const { limits, schedule, pricing } = await getSettings();
 
   return (
     <div className="space-y-6">
       <section>
         <h1 className="text-2xl font-bold tracking-tight">How it works</h1>
         <p className="mt-1 text-sm text-muted">
-          Free court hours for Brookfield residents.
+          Court hours and rules for Brookfield Subdivision.
         </p>
       </section>
 
       <section>
-        <SectionTitle>Schedule</SectionTitle>
+        <SectionTitle>Which sport, which day</SectionTitle>
         <Card>
           <ul className="space-y-3 text-sm">
             <li className="flex items-start gap-3">
@@ -39,15 +39,64 @@ export default async function RulesPage() {
               </span>
             </li>
           </ul>
+        </Card>
+      </section>
 
-          <div className="mt-4 border-t border-edge pt-3">
-            <p className="text-sm font-medium">Free hours, every day</p>
-            <ul className="mt-1 text-sm text-muted">
-              {SLOTS.map((slot) => (
-                <li key={slot.index}>{slot.label}</li>
-              ))}
-            </ul>
+      <section>
+        <SectionTitle>Hours and fees</SectionTitle>
+        <Card>
+          <div className="space-y-4 text-sm">
+            <div>
+              <p className="font-semibold">
+                Free morning · {tierRangeLabel('free', schedule)}
+              </p>
+              <p className="text-muted">
+                Free for Brookfield residents. Guests cannot book these hours.
+              </p>
+            </div>
+
+            <div className="border-t border-edge pt-3">
+              <p className="font-semibold">
+                Daytime · {tierRangeLabel('day', schedule)}
+              </p>
+              <p className="text-muted">
+                Tennis {formatPeso(pricing.day.tennis)} · Pickleball{' '}
+                {formatPeso(pricing.day.pickleball)} per hour
+              </p>
+            </div>
+
+            <div className="border-t border-edge pt-3">
+              <p className="font-semibold">
+                Evening · {tierRangeLabel('night', schedule)}
+              </p>
+              <p className="text-muted">
+                Tennis {formatPeso(pricing.night.tennis)} · Pickleball{' '}
+                {formatPeso(pricing.night.pickleball)} per hour
+              </p>
+            </div>
+
+            <p className="border-t border-edge pt-3 text-muted">
+              Paid hours are open to residents and guests alike. Fees are per
+              court, per hour.
+            </p>
           </div>
+        </Card>
+      </section>
+
+      <section>
+        <SectionTitle>On the court</SectionTitle>
+        <Card>
+          <ul className="space-y-2.5 text-sm">
+            <li>
+              <strong>Water and sports drinks only.</strong> No other food or
+              drink is allowed on the courts.
+            </li>
+            <li>Take your bottles and rubbish with you when you leave.</li>
+            <li>Non-marking court shoes only.</li>
+            <li>
+              Finish on time — the next players are waiting for their slot.
+            </li>
+          </ul>
         </Card>
       </section>
 
@@ -55,23 +104,27 @@ export default async function RulesPage() {
         <SectionTitle>Booking rules</SectionTitle>
         <Card>
           <ul className="space-y-2.5 text-sm">
+            <li>
+              Every booking is a <strong>request</strong>. The association
+              reviews it and you will see it confirmed under My bookings.
+            </li>
             {limits.enabled ? (
               <>
                 <li>
                   Bookings open <strong>{limits.advanceDays} days</strong> ahead.
                 </li>
                 <li>
-                  Each household may hold <strong>{limits.maxPerDay}</strong>{' '}
-                  {limits.maxPerDay === 1 ? 'booking' : 'bookings'} per day.
-                </li>
-                <li>
-                  Each household may hold <strong>{limits.maxPerWeek}</strong>{' '}
-                  bookings per week (Monday to Sunday).
+                  In the free morning, each household may hold{' '}
+                  <strong>{limits.maxPerDay}</strong>{' '}
+                  {limits.maxPerDay === 1 ? 'booking' : 'bookings'} per day and{' '}
+                  <strong>{limits.maxPerWeek}</strong> per week (Monday to
+                  Sunday).
                 </li>
                 <li>
                   Guests are counted the same way, by mobile number instead of
                   address.
                 </li>
+                <li>Paid hours are not limited.</li>
               </>
             ) : (
               <li>There are no per-household limits at the moment.</li>
@@ -93,7 +146,7 @@ export default async function RulesPage() {
             outside the village enter a name and mobile number only.
           </p>
           <p className="mt-2 text-sm">
-            To see or cancel a booking, look it up with the{' '}
+            To see, pay for or cancel a booking, look it up with the{' '}
             <strong>mobile number you booked with</strong> — or, for residents,
             by address to see everything your household has booked.
           </p>

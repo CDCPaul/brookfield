@@ -50,13 +50,28 @@ export const bookings = pgTable(
     courtNo: smallint('court_no').notNull(),
     /** 'resident' | 'guest'. Guests are not tied to a household. */
     bookerType: text('booker_type').notNull().default('resident'),
+    /** 'free' | 'day' | 'night' — priced at the time of booking. */
+    tier: text('tier').notNull().default('free'),
+    /** Pesos owed for this slot. Zero for the free morning. */
+    amount: integer('amount').notNull().default(0),
+    /** 'none' for free slots, otherwise 'unpaid' | 'submitted' | 'paid'. */
+    paymentStatus: text('payment_status').notNull().default('none'),
+    /** GCash reference number the payer typed in, for the admin to match. */
+    paymentRef: text('payment_ref'),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
     /** Null for guests, who have no unit in the village. */
     unitId: integer('unit_id').references(() => units.id),
     bookerName: text('booker_name').notNull(),
     /** Normalized to 09XXXXXXXXX. Doubles as the guest's identity. */
     phone: text('phone').notNull(),
-    /** 'booked' | 'cancelled' | 'no_show'. */
-    status: text('status').notNull().default('booked'),
+    /**
+     * 'pending' | 'confirmed' | 'rejected' | 'cancelled' | 'no_show'.
+     * Every booking starts as a request the association has to approve.
+     */
+    status: text('status').notNull().default('pending'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    /** Free-text note from the association, shown when a request is rejected. */
+    decisionNote: text('decision_note'),
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
     /** 'resident' | 'admin'. */
     cancelledBy: text('cancelled_by'),
@@ -69,9 +84,12 @@ export const bookings = pgTable(
     uniqueIndex('bookings_code_idx').on(table.code),
     // The authority on double-booking. Two residents racing for the same court
     // and slot will both pass the in-memory checks; only one insert survives.
+    // A pending request holds the slot — otherwise a resident would have no
+    // idea whether they had it until the association got around to approving.
     uniqueIndex('bookings_active_slot_idx')
       .on(table.bookingDate, table.sport, table.courtNo, table.slotIndex)
-      .where(sql`${table.status} = 'booked'`),
+      .where(sql`${table.status} not in ('cancelled', 'rejected')`),
+    index('bookings_status_idx').on(table.status),
     index('bookings_date_idx').on(table.bookingDate),
     index('bookings_unit_idx').on(table.unitId),
     // Guests are identified by phone, and residents can look themselves up

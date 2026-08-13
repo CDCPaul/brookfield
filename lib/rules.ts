@@ -4,36 +4,45 @@
  * Everything the server needs to accept or reject a booking lives here, with no
  * database access, so the rules can be tested exhaustively. The database still
  * has the final say on double-booking via a partial unique index; this module
- * decides everything else and produces the message the resident sees.
+ * decides everything else, works out what the slot costs, and produces the
+ * message the resident sees.
  */
 
+import type { BookerType } from './owner';
 import {
-  type DateStr,
-  type ManilaMoment,
-  addDays,
-  daysBetween,
-  isSameWeek,
-  formatShortDate,
-} from './time';
-import {
-  type Sport,
+  type Pricing,
+  type ScheduleConfig,
   type Slot,
-  SLOTS,
+  type Sport,
+  type Tier,
   courtNumbers,
   dailyCapacity,
   getSlot,
   isValidCourtNo,
   isValidSlotIndex,
+  openSlots,
+  priceFor,
   sportForDate,
+  tierForSlot,
+  tierLabel,
+  tierRangeLabel,
 } from './schedule';
+import {
+  type DateStr,
+  type ManilaMoment,
+  addDays,
+  daysBetween,
+  formatShortDate,
+  isSameWeek,
+} from './time';
 
 export type BookingLimits = {
   enabled: boolean;
-  /** Max active bookings a unit may hold on one date. */
+  /** Max active free bookings a booker may hold on one date. */
   maxPerDay: number;
-  /** Max active bookings a unit may hold in one Monday–Sunday week. */
+  /** Max active free bookings a booker may hold in one Monday–Sunday week. */
   maxPerWeek: number;
-  /** How many days ahead of today a resident may book. */
+  /** How many days ahead of today a booking may be made. */
   advanceDays: number;
 };
 
@@ -63,12 +72,12 @@ export type ActiveBooking = {
 
 /**
  * The person or household making the booking — a resident unit or a guest
- * identified by phone. Limits are counted the same way for both.
+ * identified by phone.
  */
 export type BookerState = {
   isBlocked: boolean;
-  /** Every active booking they hold, across all dates. */
-  bookings: { date: DateStr }[];
+  /** Active bookings they hold. Only free ones count against the limits. */
+  bookings: { date: DateStr; tier: Tier }[];
 };
 
 export const EMPTY_BOOKER: BookerState = { isBlocked: false, bookings: [] };
@@ -76,6 +85,8 @@ export const EMPTY_BOOKER: BookerState = { isBlocked: false, bookings: [] };
 export type RejectionCode =
   | 'invalid_slot'
   | 'invalid_court'
+  | 'closed_hours'
+  | 'guest_free_hours'
   | 'past'
   | 'too_far'
   | 'booker_blocked'
@@ -85,10 +96,8 @@ export type RejectionCode =
   | 'taken';
 
 export type BookingCheck =
-  | { ok: true }
+  | { ok: true; tier: Tier; price: number }
   | { ok: false; code: RejectionCode; message: string };
-
-const OK: BookingCheck = { ok: true };
 
 function reject(code: RejectionCode, message: string): BookingCheck {
   return { ok: false, code, message };
@@ -132,7 +141,11 @@ export type BookerUsage = {
   weekMax: number;
 };
 
-/** How much of their allowance the booker has spent, relative to `date`. */
+/**
+ * How much of their free allowance the booker has spent, relative to `date`.
+ * Paid bookings are deliberately excluded — the allowance exists to share out
+ * the free morning, not to cap what someone pays for.
+ */
 export function bookerUsage(
   booker: BookerState,
   date: DateStr,
@@ -141,6 +154,7 @@ export function bookerUsage(
   let dayUsed = 0;
   let weekUsed = 0;
   for (const booking of booker.bookings) {
+    if (booking.tier !== 'free') continue;
     if (booking.date === date) dayUsed += 1;
     if (isSameWeek(booking.date, date)) weekUsed += 1;
   }
@@ -156,8 +170,11 @@ export type BookingRequest = {
   date: DateStr;
   slotIndex: number;
   courtNo: number;
+  bookerType: BookerType;
   now: ManilaMoment;
   limits: BookingLimits;
+  schedule: ScheduleConfig;
+  pricing: Pricing;
   closures: readonly Closure[];
   /** Active bookings already held on `date`, by anyone. */
   taken: readonly ActiveBooking[];
@@ -165,8 +182,19 @@ export type BookingRequest = {
 };
 
 export function checkBooking(request: BookingRequest): BookingCheck {
-  const { date, slotIndex, courtNo, now, limits, closures, taken, booker } =
-    request;
+  const {
+    date,
+    slotIndex,
+    courtNo,
+    bookerType,
+    now,
+    limits,
+    schedule,
+    pricing,
+    closures,
+    taken,
+    booker,
+  } = request;
 
   if (!isValidSlotIndex(slotIndex)) {
     return reject('invalid_slot', 'That time slot does not exist.');
@@ -175,6 +203,20 @@ export function checkBooking(request: BookingRequest): BookingCheck {
   const sport = sportForDate(date);
   if (!isValidCourtNo(sport, courtNo)) {
     return reject('invalid_court', 'That court is not available on this day.');
+  }
+
+  const tier = tierForSlot(slotIndex, schedule);
+  if (tier === null) {
+    return reject('closed_hours', 'The courts are closed at that hour.');
+  }
+
+  // The free morning is a resident benefit; guests pay for court time.
+  if (tier === 'free' && bookerType === 'guest') {
+    return reject(
+      'guest_free_hours',
+      'The free morning hours are for Brookfield residents. Guests can book from ' +
+        `${formatHour(schedule.freeUntilHour)} onwards.`,
+    );
   }
 
   const slot = getSlot(slotIndex);
@@ -203,18 +245,19 @@ export function checkBooking(request: BookingRequest): BookingCheck {
     return reject('closed', `Court closed — ${closure.reason}.`);
   }
 
-  if (limits.enabled) {
+  // Limits guard the free morning only.
+  if (limits.enabled && tier === 'free') {
     const usage = bookerUsage(booker, date, limits);
     if (usage.dayUsed >= usage.dayMax) {
       return reject(
         'day_limit',
-        `You already have a booking on ${formatShortDate(date)}.`,
+        `You already have a free booking on ${formatShortDate(date)}.`,
       );
     }
     if (usage.weekUsed >= usage.weekMax) {
       return reject(
         'week_limit',
-        `You have used all ${usage.weekMax} bookings for that week.`,
+        `You have used all ${usage.weekMax} free bookings for that week.`,
       );
     }
   }
@@ -229,7 +272,13 @@ export function checkBooking(request: BookingRequest): BookingCheck {
     return reject('taken', 'Someone just booked this slot. Please pick another.');
   }
 
-  return OK;
+  return { ok: true, tier, price: priceFor(tier, sport, pricing) };
+}
+
+function formatHour(hour: number): string {
+  const suffix = hour < 12 ? 'AM' : 'PM';
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12}:00 ${suffix}`;
 }
 
 export type CourtStatus = 'open' | 'taken' | 'closed' | 'past';
@@ -245,14 +294,27 @@ export type SlotAvailability = {
   slotIndex: number;
   label: string;
   startMinutes: number;
+  tier: Tier;
+  price: number;
   courts: CourtAvailability[];
   openCount: number;
+};
+
+export type TierGroup = {
+  tier: Tier;
+  label: string;
+  rangeLabel: string;
+  /** Price for this day's sport; 0 for the free morning. */
+  price: number;
+  slots: SlotAvailability[];
+  openCount: number;
+  capacity: number;
 };
 
 export type DayAvailability = {
   date: DateStr;
   sport: Sport;
-  slots: SlotAvailability[];
+  groups: TierGroup[];
   openCount: number;
   capacity: number;
   /** False when the date is outside the booking window entirely. */
@@ -263,14 +325,18 @@ export type AvailabilityRequest = {
   date: DateStr;
   now: ManilaMoment;
   limits: BookingLimits;
+  schedule: ScheduleConfig;
+  pricing: Pricing;
   closures: readonly Closure[];
   taken: readonly ActiveBooking[];
 };
 
+const TIER_ORDER: Tier[] = ['free', 'day', 'night'];
+
 export function computeDayAvailability(
   request: AvailabilityRequest,
 ): DayAvailability {
-  const { date, now, limits, closures, taken } = request;
+  const { date, now, limits, schedule, pricing, closures, taken } = request;
   const sport = sportForDate(date);
   const courts = courtNumbers(sport);
 
@@ -280,9 +346,11 @@ export function computeDayAvailability(
       .map((booking) => `${booking.slotIndex}:${booking.courtNo}`),
   );
 
-  let openCount = 0;
-  const slots = SLOTS.map((slot) => {
+  const bySlot = new Map<number, SlotAvailability>();
+  for (const slot of openSlots(schedule)) {
+    const tier = tierForSlot(slot.index, schedule)!;
     const past = isPastSlot(date, slot, now);
+
     const courtStates = courts.map<CourtAvailability>((courtNo) => {
       if (past) return { courtNo, status: 'past' };
       const closure = findClosure(closures, date, slot.index, courtNo);
@@ -295,17 +363,32 @@ export function computeDayAvailability(
       return { courtNo, status: 'open' };
     });
 
-    const slotOpen = courtStates.filter((c) => c.status === 'open').length;
-    openCount += slotOpen;
-
-    return {
+    bySlot.set(slot.index, {
       slotIndex: slot.index,
       label: slot.label,
       startMinutes: slot.startMinutes,
+      tier,
+      price: priceFor(tier, sport, pricing),
       courts: courtStates,
-      openCount: slotOpen,
-    };
-  });
+      openCount: courtStates.filter((court) => court.status === 'open').length,
+    });
+  }
+
+  const groups: TierGroup[] = [];
+  for (const tier of TIER_ORDER) {
+    const slots = [...bySlot.values()].filter((slot) => slot.tier === tier);
+    if (slots.length === 0) continue;
+
+    groups.push({
+      tier,
+      label: tierLabel(tier),
+      rangeLabel: tierRangeLabel(tier, schedule),
+      price: priceFor(tier, sport, pricing),
+      slots,
+      openCount: slots.reduce((total, slot) => total + slot.openCount, 0),
+      capacity: slots.length * courts.length,
+    });
+  }
 
   const daysAhead = daysBetween(now.date, date);
   const withinWindow =
@@ -314,14 +397,26 @@ export function computeDayAvailability(
   return {
     date,
     sport,
-    slots,
-    openCount,
-    capacity: dailyCapacity(date),
+    groups,
+    openCount: groups.reduce((total, group) => total + group.openCount, 0),
+    capacity: dailyCapacity(date, schedule),
     withinWindow,
   };
 }
 
-/** The dates a resident may choose from, starting today. */
+/** Finds one slot in a computed day, regardless of tier. */
+export function findSlotAvailability(
+  day: DayAvailability,
+  slotIndex: number,
+): SlotAvailability | null {
+  for (const group of day.groups) {
+    const slot = group.slots.find((entry) => entry.slotIndex === slotIndex);
+    if (slot) return slot;
+  }
+  return null;
+}
+
+/** The dates a booker may choose from, starting today. */
 export function bookableDates(
   now: ManilaMoment,
   limits: BookingLimits,

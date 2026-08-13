@@ -8,20 +8,28 @@ import { manilaNow, type DateStr } from '@/lib/time';
 
 import { getActiveBookings } from './bookings';
 import { getClosures } from './closures';
-import { getLimits } from './settings';
+import { getSettings } from './settings';
 
 export async function getDayAvailability(
   date: DateStr,
   now: Date = new Date(),
 ): Promise<DayAvailability> {
   const moment = manilaNow(now);
-  const limits = await getLimits();
+  const { limits, schedule, pricing } = await getSettings();
   const [closures, taken] = await Promise.all([
     getClosures(date, date),
     getActiveBookings(date, date),
   ]);
 
-  return computeDayAvailability({ date, now: moment, limits, closures, taken });
+  return computeDayAvailability({
+    date,
+    now: moment,
+    limits,
+    schedule,
+    pricing,
+    closures,
+    taken,
+  });
 }
 
 export type DaySummary = {
@@ -29,6 +37,8 @@ export type DaySummary = {
   sport: Sport;
   openCount: number;
   capacity: number;
+  /** Open places in the free morning only — what most residents care about. */
+  freeOpenCount: number;
   isToday: boolean;
   /** Every slot has already started — 'over', not 'fully booked'. */
   allPast: boolean;
@@ -39,14 +49,12 @@ export async function getCalendarStrip(
   now: Date = new Date(),
 ): Promise<DaySummary[]> {
   const moment = manilaNow(now);
-  const limits = await getLimits();
+  const { limits, schedule, pricing } = await getSettings();
   const dates = bookableDates(moment, limits);
-  const from = dates[0];
-  const to = dates[dates.length - 1];
 
   const [closures, taken] = await Promise.all([
-    getClosures(from, to),
-    getActiveBookings(from, to),
+    getClosures(dates[0], dates[dates.length - 1]),
+    getActiveBookings(dates[0], dates[dates.length - 1]),
   ]);
 
   return dates.map((date) => {
@@ -54,17 +62,24 @@ export async function getCalendarStrip(
       date,
       now: moment,
       limits,
+      schedule,
+      pricing,
       closures,
       taken,
     });
+
     return {
       date,
       sport: sportForDate(date),
       openCount: day.openCount,
       capacity: day.capacity,
+      freeOpenCount:
+        day.groups.find((group) => group.tier === 'free')?.openCount ?? 0,
       isToday: date === moment.date,
-      allPast: day.slots.every((slot) =>
-        slot.courts.every((court) => court.status === 'past'),
+      allPast: day.groups.every((group) =>
+        group.slots.every((slot) =>
+          slot.courts.every((court) => court.status === 'past'),
+        ),
       ),
     };
   });

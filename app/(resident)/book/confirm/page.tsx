@@ -4,8 +4,16 @@ import { notFound } from 'next/navigation';
 import { BookingForm } from '@/components/booking-form';
 import { Notice, SportBadge } from '@/components/ui';
 import { getDayAvailability } from '@/lib/queries/availability';
-import { getLimits } from '@/lib/queries/settings';
-import { getSlot, isValidCourtNo, sportForDate } from '@/lib/schedule';
+import { getSettings } from '@/lib/queries/settings';
+import { findSlotAvailability } from '@/lib/rules';
+import {
+  formatPeso,
+  getSlot,
+  isValidCourtNo,
+  isValidSlotIndex,
+  sportForDate,
+  tierLabel,
+} from '@/lib/schedule';
 import { formatLongDate, isValidDateStr } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
@@ -20,26 +28,23 @@ export default async function ConfirmPage({
   const slotIndex = Number(params.slot);
   const courtNo = Number(params.court);
 
-  if (!isValidDateStr(date)) notFound();
+  if (!isValidDateStr(date) || !isValidSlotIndex(slotIndex)) notFound();
 
   const sport = sportForDate(date);
   if (!isValidCourtNo(sport, courtNo)) notFound();
 
-  let slot;
-  try {
-    slot = getSlot(slotIndex);
-  } catch {
-    notFound();
-  }
-
+  const slot = getSlot(slotIndex);
   const now = new Date();
-  const [day, limits] = await Promise.all([
+  const [day, { limits, schedule }] = await Promise.all([
     getDayAvailability(date, now),
-    getLimits(),
+    getSettings(),
   ]);
 
-  const court = day.slots[slotIndex]?.courts.find((c) => c.courtNo === courtNo);
+  const availability = findSlotAvailability(day, slotIndex);
+  const court = availability?.courts.find((c) => c.courtNo === courtNo);
   const stillOpen = court?.status === 'open';
+  const price = availability?.price ?? 0;
+  const tier = availability?.tier ?? 'free';
 
   return (
     <div className="space-y-5">
@@ -48,7 +53,7 @@ export default async function ConfirmPage({
           ← Back to slots
         </Link>
         <h1 className="mt-2 text-2xl font-bold tracking-tight">
-          Confirm booking
+          Request a booking
         </h1>
       </section>
 
@@ -63,14 +68,36 @@ export default async function ConfirmPage({
           </div>
           <SportBadge sport={sport} />
         </div>
+
+        <div className="mt-3 flex items-center justify-between border-t border-edge pt-3">
+          <span className="text-sm text-muted">
+            {tierLabel(tier)}
+            {tier === 'free' ? ' · residents only' : ''}
+          </span>
+          <span className="text-lg font-bold">
+            {price > 0 ? formatPeso(price) : 'Free'}
+          </span>
+        </div>
       </section>
 
       {stillOpen ? (
         <>
-          <BookingForm date={date} slotIndex={slotIndex} courtNo={courtNo} />
+          <Notice>
+            Every booking is a <strong>request</strong>. The association reviews
+            it and you will see it confirmed here once approved.
+          </Notice>
+
+          <BookingForm
+            date={date}
+            slotIndex={slotIndex}
+            courtNo={courtNo}
+            price={price}
+            freeUntilHour={schedule.freeUntilHour}
+          />
+
           <p className="text-center text-xs text-muted">
             {limits.enabled
-              ? `Limit of ${limits.maxPerDay} booking per day and ${limits.maxPerWeek} per week — per household for residents, per mobile number for guests.`
+              ? `Free morning slots are limited to ${limits.maxPerDay} per day and ${limits.maxPerWeek} per week — per household for residents. Paid hours are not limited.`
               : 'Please be considerate so everyone gets a turn.'}
           </p>
         </>

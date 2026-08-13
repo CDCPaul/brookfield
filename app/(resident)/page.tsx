@@ -7,8 +7,8 @@ import { SlotList } from '@/components/slot-list';
 import { SportBadge } from '@/components/ui';
 import { getCalendarStrip, getDayAvailability } from '@/lib/queries/availability';
 import { getClosures } from '@/lib/queries/closures';
-import { getLimits } from '@/lib/queries/settings';
-import { sportLabel } from '@/lib/schedule';
+import { getSettings } from '@/lib/queries/settings';
+import { formatPeso, sportLabel } from '@/lib/schedule';
 import { addDays, formatLongDate, manilaNow } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 export default async function TodayPage() {
   const now = new Date();
   const today = manilaNow(now).date;
-  const limits = await getLimits();
+  const { limits, pricing } = await getSettings();
 
   const [day, strip, closures] = await Promise.all([
     getDayAvailability(today, now),
@@ -24,9 +24,9 @@ export default async function TodayPage() {
     getClosures(today, addDays(today, limits.advanceDays)),
   ]);
 
-  const morningIsOver = day.slots.every((slot) =>
-    slot.courts.every((court) => court.status === 'past'),
-  );
+  const dayIsOver = day.openCount === 0 && day.capacity > 0;
+  const dayPrice = pricing.day[day.sport];
+  const nightPrice = pricing.night[day.sport];
 
   return (
     <div className="space-y-5">
@@ -36,7 +36,8 @@ export default async function TodayPage() {
           {sportLabel(day.sport)} today
         </h1>
         <p className="mt-1 text-sm text-muted">
-          Free for residents, 6:00 – 9:00 AM
+          Free 6:00 – 9:00 AM for residents · {formatPeso(dayPrice)}–
+          {formatPeso(nightPrice)} per hour after that
         </p>
       </section>
 
@@ -44,13 +45,11 @@ export default async function TodayPage() {
 
       <ClosureNotice closures={closures} />
 
-      {morningIsOver ? (
+      {dayIsOver ? (
         <section className="rounded-2xl border border-edge bg-surface p-5 text-center">
-          <p className="text-base font-semibold">
-            Today&apos;s free hours are over
-          </p>
+          <p className="text-base font-semibold">Nothing left today</p>
           <p className="mt-1 text-sm text-muted">
-            The courts open again at 6:00 AM. Pick a day below to book.
+            Pick another day below to book.
           </p>
         </section>
       ) : (
@@ -63,9 +62,7 @@ export default async function TodayPage() {
             </p>
           </section>
 
-          <section>
-            <SlotList day={day} />
-          </section>
+          <SlotList day={day} />
         </>
       )}
 
@@ -79,14 +76,18 @@ export default async function TodayPage() {
       <section className="rounded-2xl border border-edge bg-surface p-4">
         <h2 className="text-sm font-semibold">Good to know</h2>
         <ul className="mt-2 space-y-1.5 text-sm text-muted">
-          <li>🎾 Tennis on Mon, Wed, Fri and Sun · 🏓 Pickleball on Tue, Thu and Sat</li>
+          <li>
+            🎾 Tennis on Mon, Wed, Fri and Sun · 🏓 Pickleball on Tue, Thu and
+            Sat
+          </li>
+          <li>Every booking is reviewed by the association before it is confirmed</li>
           {limits.enabled ? (
             <li>
-              {limits.maxPerDay} booking per household per day,{' '}
+              Free morning: {limits.maxPerDay} booking per household per day,{' '}
               {limits.maxPerWeek} per week
             </li>
           ) : null}
-          <li>Cancel early if you cannot make it — someone else can take it</li>
+          <li>Water and sports drinks only — no other food or drink on court</li>
         </ul>
         <Link
           href="/rules"

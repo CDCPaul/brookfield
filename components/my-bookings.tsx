@@ -6,8 +6,14 @@ import { useActionState, useEffect, useRef, useState, useTransition } from 'reac
 import {
   cancelBookingAction,
   lookupBookingsAction,
+  submitPaymentAction,
   type LookupState,
+  type PaymentState,
 } from '@/app/actions';
+import { PaymentBadge, StatusBadge } from '@/components/booking-status';
+import { PaymentInstructions } from '@/components/payment-instructions';
+import type { PaymentConfig } from '@/lib/queries/settings';
+import { isPaymentConfigured } from '@/lib/queries/settings';
 import {
   Field,
   Notice,
@@ -23,7 +29,7 @@ import { formatLongDate } from '@/lib/time';
 
 type Mode = 'phone' | 'address';
 
-export function MyBookings() {
+export function MyBookings({ payment }: { payment: PaymentConfig }) {
   const [state, formAction] = useActionState<LookupState, FormData>(
     lookupBookingsAction,
     {},
@@ -164,6 +170,7 @@ export function MyBookings() {
               key={booking.id}
               booking={booking}
               owner={state.owner ?? ''}
+              payment={payment}
               onCancelled={() =>
                 setCancelledIds((current) => [...current, booking.id])
               }
@@ -178,16 +185,19 @@ export function MyBookings() {
 function BookingCard({
   booking,
   owner,
+  payment,
   onCancelled,
 }: {
   booking: BookingWithUnit;
   owner: string;
+  payment: PaymentConfig;
   onCancelled: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const slot = getSlot(booking.slotIndex);
+  const owes = booking.amount > 0 && booking.paymentStatus !== 'paid';
 
   function cancel() {
     const formData = new FormData();
@@ -223,6 +233,29 @@ function BookingCard({
         <SportBadge sport={booking.sport as 'tennis' | 'pickleball'} />
       </div>
 
+      <div className="mt-2.5 flex flex-wrap gap-1.5">
+        <StatusBadge status={booking.status} />
+        <PaymentBadge
+          paymentStatus={booking.paymentStatus}
+          amount={booking.amount}
+        />
+      </div>
+
+      {owes && isPaymentConfigured(payment) ? (
+        <div className="mt-3 space-y-3">
+          <PaymentInstructions
+            payment={payment}
+            amount={booking.amount}
+            code={booking.code}
+          />
+          <PaymentReferenceForm
+            bookingId={booking.id}
+            owner={owner}
+            existing={booking.paymentRef}
+          />
+        </div>
+      ) : null}
+
       {error ? (
         <div className="mt-3">
           <Notice tone="error">{error}</Notice>
@@ -251,5 +284,49 @@ function BookingCard({
         )}
       </div>
     </li>
+  );
+}
+
+function PaymentReferenceForm({
+  bookingId,
+  owner,
+  existing,
+}: {
+  bookingId: number;
+  owner: string;
+  existing: string | null;
+}) {
+  const [state, formAction] = useActionState<PaymentState, FormData>(
+    submitPaymentAction,
+    {},
+  );
+
+  return (
+    <form action={formAction} className="space-y-2">
+      <input type="hidden" name="bookingId" value={bookingId} />
+      <input type="hidden" name="owner" value={owner} />
+
+      <Field label="GCash reference number">
+        <input
+          name="reference"
+          required
+          inputMode="numeric"
+          defaultValue={existing ?? ''}
+          placeholder="e.g. 1234567890123"
+          className={inputClass}
+        />
+      </Field>
+
+      {state.error ? <Notice tone="error">{state.error}</Notice> : null}
+      {state.submitted ? (
+        <Notice tone="success">
+          Thank you. The association will check it and confirm your booking.
+        </Notice>
+      ) : null}
+
+      <PrimaryButton type="submit">
+        {existing ? 'Update reference' : 'I have paid'}
+      </PrimaryButton>
+    </form>
   );
 }

@@ -1,20 +1,25 @@
 import { BookingActions } from '@/components/admin/booking-actions';
-import { GuestBadge, bookerLabel } from '@/components/booker-label';
 import { DateNav } from '@/components/admin/date-nav';
+import { GuestBadge, bookerLabel } from '@/components/booker-label';
+import { PaymentBadge, StatusBadge } from '@/components/booking-status';
 import { Notice, SportBadge } from '@/components/ui';
 import { getBookingsForDate } from '@/lib/queries/bookings';
 import { getClosures } from '@/lib/queries/closures';
-import { findClosure } from '@/lib/rules';
-import { SLOTS, courtNumbers, sportForDate, sportLabel } from '@/lib/schedule';
+import { getSettings } from '@/lib/queries/settings';
+import {
+  type Tier,
+  formatPeso,
+  getSlot,
+  openSlots,
+  sportForDate,
+  tierLabel,
+  tierRangeLabel,
+} from '@/lib/schedule';
 import { isValidDateStr, manilaNow } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
-const STATUS_STYLES: Record<string, string> = {
-  booked: 'border-court bg-court-soft dark:bg-court/15',
-  cancelled: 'border-edge bg-background opacity-60',
-  no_show: 'border-orange-300 bg-orange-50 dark:bg-orange-950/30',
-};
+const TIER_ORDER: Tier[] = ['free', 'day', 'night'];
 
 export default async function AdminBookingsPage({
   searchParams,
@@ -23,19 +28,26 @@ export default async function AdminBookingsPage({
 }) {
   const params = await searchParams;
   const today = manilaNow().date;
-  const date =
-    params.date && isValidDateStr(params.date) ? params.date : today;
+  const date = params.date && isValidDateStr(params.date) ? params.date : today;
 
   const sport = sportForDate(date);
-  const courts = courtNumbers(sport);
-
-  const [bookings, closures] = await Promise.all([
+  const [bookings, closures, { schedule }] = await Promise.all([
     getBookingsForDate(date),
     getClosures(date, date),
+    getSettings(),
   ]);
 
-  const active = bookings.filter((booking) => booking.status !== 'cancelled');
-  const cancelled = bookings.filter((booking) => booking.status === 'cancelled');
+  const live = bookings.filter((booking) =>
+    ['pending', 'confirmed', 'no_show'].includes(booking.status),
+  );
+  const closed = bookings.filter((booking) =>
+    ['cancelled', 'rejected'].includes(booking.status),
+  );
+
+  const capacity = openSlots(schedule).length * (sport === 'tennis' ? 1 : 4);
+  const revenue = live
+    .filter((booking) => booking.status !== 'no_show')
+    .reduce((total, booking) => total + booking.amount, 0);
 
   return (
     <div className="space-y-5">
@@ -43,55 +55,71 @@ export default async function AdminBookingsPage({
 
       <div className="flex items-center justify-between rounded-xl border border-edge bg-surface px-4 py-3">
         <SportBadge sport={sport} />
-        <p className="text-sm">
-          <span className="font-semibold">{active.length}</span>
-          <span className="text-muted">
-            {' '}
-            of {courts.length * SLOTS.length} booked
-          </span>
+        <p className="text-right text-sm">
+          <span className="font-semibold">{live.length}</span>
+          <span className="text-muted"> of {capacity} booked</span>
+          {revenue > 0 ? (
+            <span className="block text-xs text-muted">
+              {formatPeso(revenue)} billed
+            </span>
+          ) : null}
         </p>
       </div>
 
-      <div className="space-y-4">
-        {SLOTS.map((slot) => (
-          <section key={slot.index}>
-            <h2 className="mb-2 text-sm font-semibold">{slot.label}</h2>
-            <ul className="space-y-2">
-              {courts.map((courtNo) => {
-                const booking = active.find(
-                  (item) =>
-                    item.slotIndex === slot.index && item.courtNo === courtNo,
-                );
-                const closure = findClosure(closures, date, slot.index, courtNo);
+      {closures.length > 0 ? (
+        <div className="rounded-xl border border-orange-300 bg-orange-50 p-3 text-sm dark:border-orange-900 dark:bg-orange-950/30">
+          <p className="font-semibold text-clay">Closures today</p>
+          <ul className="mt-1 space-y-0.5 text-xs text-muted">
+            {closures.map((closure, index) => (
+              <li key={index}>
+                {closure.reason} ·{' '}
+                {closure.slotIndex === null
+                  ? 'all slots'
+                  : getSlot(closure.slotIndex).label}{' '}
+                ·{' '}
+                {closure.courtNo === null
+                  ? 'all courts'
+                  : `court ${closure.courtNo}`}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
-                return (
-                  <li
-                    key={courtNo}
-                    className={`rounded-xl border p-3 ${
-                      booking
-                        ? STATUS_STYLES[booking.status]
-                        : closure
-                          ? 'border-orange-300 bg-orange-50 dark:bg-orange-950/30'
-                          : 'border-edge bg-surface'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <span className="shrink-0 text-xs font-semibold text-muted">
-                        {sport === 'tennis' ? 'Court' : `Court ${courtNo}`}
-                      </span>
+      {live.length === 0 ? (
+        <Notice>No bookings on this day.</Notice>
+      ) : (
+        TIER_ORDER.map((tier) => {
+          const inTier = live.filter((booking) => booking.tier === tier);
+          if (inTier.length === 0) return null;
 
-                      {booking ? (
-                        <div className="flex-1 text-right">
-                          <p className="flex items-center justify-end gap-1.5 text-sm font-semibold">
+          return (
+            <section key={tier}>
+              <h2 className="mb-2 flex items-baseline justify-between text-sm font-semibold">
+                {tierLabel(tier)}
+                <span className="text-xs font-normal text-muted">
+                  {tierRangeLabel(tier, schedule)}
+                </span>
+              </h2>
+
+              <ul className="space-y-2">
+                {inTier.map((booking) => {
+                  const unit = bookerLabel(booking);
+                  return (
+                    <li
+                      key={booking.id}
+                      className="rounded-xl border border-edge bg-surface p-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="flex items-center gap-1.5 text-sm font-semibold">
                             {booking.bookerType !== 'resident' ? (
                               <GuestBadge />
                             ) : null}
                             {booking.bookerName}
                           </p>
-                          {bookerLabel(booking) ? (
-                            <p className="text-xs text-muted">
-                              {bookerLabel(booking)}
-                            </p>
+                          {unit ? (
+                            <p className="text-xs text-muted">{unit}</p>
                           ) : null}
                           <p className="text-xs">
                             <a
@@ -100,62 +128,67 @@ export default async function AdminBookingsPage({
                             >
                               {booking.phone}
                             </a>
-                            <span className="text-muted">
-                              {' '}
-                              · {booking.code}
-                            </span>
+                            <span className="text-muted"> · {booking.code}</span>
                           </p>
-                          {booking.status === 'no_show' ? (
-                            <p className="mt-1 text-xs font-semibold text-clay">
-                              Marked no-show
-                            </p>
-                          ) : null}
                         </div>
-                      ) : closure ? (
-                        <p className="flex-1 text-right text-sm text-clay">
-                          Closed — {closure.reason}
-                        </p>
-                      ) : (
-                        <p className="flex-1 text-right text-sm text-muted">
-                          Open
-                        </p>
-                      )}
-                    </div>
+                        <div className="shrink-0 text-right">
+                          <p className="text-sm font-semibold">
+                            {getSlot(booking.slotIndex).label}
+                          </p>
+                          <p className="text-xs text-muted">
+                            {booking.sport === 'tennis'
+                              ? 'Tennis'
+                              : `Court ${booking.courtNo}`}
+                          </p>
+                        </div>
+                      </div>
 
-                    {booking && booking.status === 'booked' ? (
-                      <BookingActions bookingId={booking.id} />
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ))}
-      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <StatusBadge status={booking.status} />
+                        <PaymentBadge
+                          paymentStatus={booking.paymentStatus}
+                          amount={booking.amount}
+                        />
+                      </div>
 
-      {cancelled.length > 0 ? (
+                      {booking.status !== 'no_show' ? (
+                        <BookingActions
+                          bookingId={booking.id}
+                          showMarkPaid={
+                            booking.amount > 0 &&
+                            booking.paymentStatus !== 'paid'
+                          }
+                        />
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          );
+        })
+      )}
+
+      {closed.length > 0 ? (
         <section>
           <h2 className="mb-2 text-sm font-semibold text-muted">
-            Cancelled ({cancelled.length})
+            Cancelled and declined ({closed.length})
           </h2>
           <ul className="space-y-1.5">
-            {cancelled.map((booking) => (
+            {closed.map((booking) => (
               <li
                 key={booking.id}
                 className="rounded-lg border border-edge px-3 py-2 text-xs text-muted"
               >
-                {SLOTS[booking.slotIndex].label} · Court {booking.courtNo} ·{' '}
+                {getSlot(booking.slotIndex).label} · Court {booking.courtNo} ·{' '}
                 {booking.bookerName}
                 {booking.cancelledBy ? ` (by ${booking.cancelledBy})` : ''}
                 {booking.cancelReason ? ` — ${booking.cancelReason}` : ''}
+                {booking.decisionNote ? ` — ${booking.decisionNote}` : ''}
               </li>
             ))}
           </ul>
         </section>
-      ) : null}
-
-      {active.length === 0 && cancelled.length === 0 ? (
-        <Notice>No bookings for {sportLabel(sport).toLowerCase()} on this day.</Notice>
       ) : null}
     </div>
   );

@@ -96,10 +96,16 @@ export function manilaNow(now: Date = new Date()): ManilaMoment {
   };
 }
 
-/** Formats minutes-since-midnight as 'H:MM AM/PM' for display. */
+/**
+ * Formats minutes-since-midnight as 'H:MM AM/PM' for display.
+ *
+ * 1440 wraps back to 12:00 AM, so the last slot of the day reads
+ * '11:00 PM – 12:00 AM' rather than ending at noon.
+ */
 export function formatClock(minutes: number): string {
-  const hour24 = Math.floor(minutes / 60);
-  const minute = minutes % 60;
+  const normalized = ((minutes % 1440) + 1440) % 1440;
+  const hour24 = Math.floor(normalized / 60);
+  const minute = normalized % 60;
   const suffix = hour24 < 12 ? 'AM' : 'PM';
   const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
   return `${hour12}:${String(minute).padStart(2, '0')} ${suffix}`;

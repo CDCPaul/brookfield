@@ -1,6 +1,11 @@
 import { Card, Notice, SectionTitle } from '@/components/ui';
 import { getStats } from '@/lib/queries/stats';
-import { SLOTS } from '@/lib/schedule';
+import {
+  SLOTS,
+  type Tier,
+  formatPeso,
+  tierLabel,
+} from '@/lib/schedule';
 import {
   formatMonth,
   isValidMonthStr,
@@ -55,9 +60,47 @@ export default async function StatsPage({
         <Stat label="No-shows" value={stats.noShow} />
       </section>
 
-      <section className="grid grid-cols-2 gap-2">
-        <Stat label="By residents" value={stats.residentCount} />
-        <Stat label="By guests" value={stats.guestCount} />
+      <section className="grid grid-cols-3 gap-2">
+        <Stat label="Residents" value={stats.residentCount} />
+        <Stat label="Guests" value={stats.guestCount} />
+        <Stat label="Awaiting approval" value={stats.pendingCount} />
+      </section>
+
+      <section>
+        <SectionTitle>Court fees</SectionTitle>
+        <Card>
+          <dl className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <dt className="text-muted">Billed</dt>
+              <dd className="font-semibold">{formatPeso(stats.billed)}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-muted">Collected</dt>
+              <dd className="font-semibold text-court">
+                {formatPeso(stats.collected)}
+              </dd>
+            </div>
+            <div className="flex justify-between border-t border-edge pt-2">
+              <dt className="text-muted">Outstanding</dt>
+              <dd className="font-semibold text-clay">
+                {formatPeso(stats.billed - stats.collected)}
+              </dd>
+            </div>
+          </dl>
+
+          {stats.byTier.length > 0 ? (
+            <ul className="mt-3 space-y-1.5 border-t border-edge pt-3 text-sm">
+              {stats.byTier.map((row) => (
+                <li key={row.tier} className="flex justify-between">
+                  <span>{tierLabel(row.tier as Tier)}</span>
+                  <span className="text-muted">
+                    {row.count} · {formatPeso(row.amount)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </Card>
       </section>
 
       {stats.total === 0 ? (

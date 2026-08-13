@@ -9,7 +9,13 @@ export type MonthStats = {
   noShow: number;
   residentCount: number;
   guestCount: number;
+  pendingCount: number;
+  /** Pesos billed on bookings that were not cancelled or declined. */
+  billed: number;
+  /** Pesos actually marked as received. */
+  collected: number;
   bySport: { sport: string; count: number }[];
+  byTier: { tier: string; count: number; amount: number }[];
   bySlot: { slotIndex: number; count: number }[];
   topUnits: {
     unitKey: string;
@@ -23,29 +29,45 @@ export type MonthStats = {
 const inRange = (from: DateStr, to: DateStr) =>
   and(gte(bookings.bookingDate, from), lte(bookings.bookingDate, to));
 
+/** Bookings that still stand — neither cancelled by anyone nor declined. */
+const STANDING = sql`${bookings.status} not in ('cancelled', 'rejected')`;
+
 export async function getStats(
   from: DateStr,
   to: DateStr,
 ): Promise<MonthStats> {
+  const window = inRange(from, to);
+  const standing = and(window, STANDING);
+
   const [totals] = await db
     .select({
-      total: sql<number>`count(*) filter (where ${bookings.status} <> 'cancelled')::int`,
+      total: sql<number>`count(*) filter (where ${STANDING})::int`,
       cancelled: sql<number>`count(*) filter (where ${bookings.status} = 'cancelled')::int`,
       noShow: sql<number>`count(*) filter (where ${bookings.status} = 'no_show')::int`,
-      residentCount: sql<number>`count(*) filter (where ${bookings.status} <> 'cancelled' and ${bookings.bookerType} = 'resident')::int`,
-      guestCount: sql<number>`count(*) filter (where ${bookings.status} <> 'cancelled' and ${bookings.bookerType} <> 'resident')::int`,
+      pendingCount: sql<number>`count(*) filter (where ${bookings.status} = 'pending')::int`,
+      residentCount: sql<number>`count(*) filter (where ${STANDING} and ${bookings.bookerType} = 'resident')::int`,
+      guestCount: sql<number>`count(*) filter (where ${STANDING} and ${bookings.bookerType} <> 'resident')::int`,
+      billed: sql<number>`coalesce(sum(${bookings.amount}) filter (where ${STANDING}), 0)::int`,
+      collected: sql<number>`coalesce(sum(${bookings.amount}) filter (where ${bookings.paymentStatus} = 'paid'), 0)::int`,
     })
     .from(bookings)
-    .where(inRange(from, to));
+    .where(window);
 
   const bySport = await db
+    .select({ sport: bookings.sport, count: sql<number>`count(*)::int` })
+    .from(bookings)
+    .where(standing)
+    .groupBy(bookings.sport);
+
+  const byTier = await db
     .select({
-      sport: bookings.sport,
+      tier: bookings.tier,
       count: sql<number>`count(*)::int`,
+      amount: sql<number>`coalesce(sum(${bookings.amount}), 0)::int`,
     })
     .from(bookings)
-    .where(and(inRange(from, to), sql`${bookings.status} <> 'cancelled'`))
-    .groupBy(bookings.sport);
+    .where(standing)
+    .groupBy(bookings.tier);
 
   const bySlot = await db
     .select({
@@ -53,7 +75,7 @@ export async function getStats(
       count: sql<number>`count(*)::int`,
     })
     .from(bookings)
-    .where(and(inRange(from, to), sql`${bookings.status} <> 'cancelled'`))
+    .where(standing)
     .groupBy(bookings.slotIndex)
     .orderBy(bookings.slotIndex);
 
@@ -69,7 +91,7 @@ export async function getStats(
     })
     .from(bookings)
     .innerJoin(units, sql`${units.id} = ${bookings.unitId}`)
-    .where(and(inRange(from, to), sql`${bookings.status} <> 'cancelled'`))
+    .where(standing)
     .groupBy(units.id)
     .orderBy(desc(sql`count(*)`))
     .limit(10);
@@ -78,9 +100,13 @@ export async function getStats(
     total: totals?.total ?? 0,
     cancelled: totals?.cancelled ?? 0,
     noShow: totals?.noShow ?? 0,
+    pendingCount: totals?.pendingCount ?? 0,
     residentCount: totals?.residentCount ?? 0,
     guestCount: totals?.guestCount ?? 0,
+    billed: totals?.billed ?? 0,
+    collected: totals?.collected ?? 0,
     bySport,
+    byTier,
     bySlot: bySlot.map((row) => ({ slotIndex: row.slotIndex, count: row.count })),
     topUnits,
   };
@@ -92,6 +118,10 @@ export type ExportRow = {
   sport: string;
   court: number;
   bookerType: string;
+  tier: string;
+  amount: number;
+  paymentStatus: string;
+  paymentRef: string | null;
   name: string;
   phase: string | null;
   block: string | null;
@@ -112,6 +142,10 @@ export async function getExportRows(
       sport: bookings.sport,
       court: bookings.courtNo,
       bookerType: bookings.bookerType,
+      tier: bookings.tier,
+      amount: bookings.amount,
+      paymentStatus: bookings.paymentStatus,
+      paymentRef: bookings.paymentRef,
       name: bookings.bookerName,
       phase: units.phase,
       block: units.block,

@@ -5,6 +5,8 @@ import { Logo } from '@/components/logo';
 import { Wordmark } from '@/components/wordmark';
 import { adminLogoutAction } from '@/app/admin/actions';
 import { isAdmin } from '@/lib/auth';
+import { countPendingBookings } from '@/lib/queries/bookings';
+import { manilaNow } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +14,8 @@ export default async function AdminLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   if (!(await isAdmin())) redirect('/admin/login');
+
+  const pendingCount = await countPendingBookings(manilaNow().date);
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-[560px] flex-col">
@@ -30,7 +34,7 @@ export default async function AdminLayout({
             </button>
           </form>
         </div>
-        <AdminNav />
+        <AdminNav pendingCount={pendingCount} />
       </header>
 
       <main className="flex-1 px-4 py-4">{children}</main>

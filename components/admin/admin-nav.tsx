@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const TABS = [
+  { href: '/admin/requests', label: 'Requests' },
   { href: '/admin', label: 'Bookings' },
   { href: '/admin/closures', label: 'Closures' },
   { href: '/admin/units', label: 'Units' },
@@ -11,7 +12,7 @@ const TABS = [
   { href: '/admin/settings', label: 'Settings' },
 ];
 
-export function AdminNav() {
+export function AdminNav({ pendingCount = 0 }: { pendingCount?: number }) {
   const pathname = usePathname();
 
   return (
@@ -32,6 +33,17 @@ export function AdminNav() {
                 }`}
               >
                 {tab.label}
+                {tab.href === '/admin/requests' && pendingCount > 0 ? (
+                  <span
+                    className={`ml-1.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                      active
+                        ? 'bg-white text-court'
+                        : 'bg-amber-500 text-white'
+                    }`}
+                  >
+                    {pendingCount}
+                  </span>
+                ) : null}
               </Link>
             </li>
           );

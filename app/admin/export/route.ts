@@ -13,6 +13,7 @@ const HEADERS = [
   'Time',
   'Sport',
   'Court',
+  'Rate',
   'Type',
   'Name',
   'Phase',
@@ -20,6 +21,9 @@ const HEADERS = [
   'Lot',
   'Phone',
   'Status',
+  'Fee',
+  'Payment',
+  'GCash ref',
   'Booked at',
 ];
 
@@ -51,6 +55,7 @@ export async function GET(request: Request) {
         SLOTS[row.slot]?.label ?? String(row.slot),
         row.sport,
         String(row.court),
+        row.tier,
         row.bookerType === 'resident' ? 'Resident' : 'Guest',
         row.name,
         // Normalized so the sheet can be sorted and grouped by household.
@@ -61,6 +66,9 @@ export async function GET(request: Request) {
         // Leading apostrophe keeps Excel from dropping the leading zero.
         `'${row.phone}`,
         row.status,
+        String(row.amount),
+        row.paymentStatus,
+        row.paymentRef ?? '',
         row.bookedAt.toISOString(),
       ]
         .map(csvCell)

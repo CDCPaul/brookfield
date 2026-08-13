@@ -29,17 +29,27 @@ export function BookingForm({
   date,
   slotIndex,
   courtNo,
+  price,
+  freeUntilHour,
 }: {
   date: string;
   slotIndex: number;
   courtNo: number;
+  price: number;
+  freeUntilHour: number;
 }) {
   const [bookerType, setBookerType] = useState<BookerType | null>(null);
   const remembered = useRememberedBookerType();
 
   if (bookerType === null) {
     return (
-      <BookerTypeStep onChoose={setBookerType} suggested={remembered} />
+      <BookerTypeStep
+        onChoose={setBookerType}
+        suggested={remembered}
+        // Guests may not take the free morning; say so before they tap.
+        guestBlocked={price === 0}
+        freeUntilHour={freeUntilHour}
+      />
     );
   }
 
@@ -52,6 +62,12 @@ export function BookingForm({
       onBack={() => setBookerType(null)}
     />
   );
+}
+
+function formatHour(hour: number): string {
+  const suffix = hour < 12 ? 'AM' : 'PM';
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12}:00 ${suffix}`;
 }
 
 // localStorage is an external store, so it is read through the API meant for
@@ -69,9 +85,13 @@ function useRememberedBookerType(): BookerType | null {
 function BookerTypeStep({
   onChoose,
   suggested,
+  guestBlocked,
+  freeUntilHour,
 }: {
   onChoose: (type: BookerType) => void;
   suggested: BookerType | null;
+  guestBlocked: boolean;
+  freeUntilHour: number;
 }) {
   return (
     <div className="space-y-3">
@@ -102,8 +122,9 @@ function BookerTypeStep({
 
       <button
         type="button"
+        disabled={guestBlocked}
         onClick={() => onChoose('guest')}
-        className="flex w-full items-center gap-3 rounded-2xl border border-edge bg-surface p-4 text-left active:bg-background"
+        className="flex w-full items-center gap-3 rounded-2xl border border-edge bg-surface p-4 text-left active:bg-background disabled:opacity-50"
       >
         <span aria-hidden="true" className="text-2xl">
           👋
@@ -111,10 +132,12 @@ function BookerTypeStep({
         <span className="flex-1">
           <span className="block text-base font-semibold">Guest</span>
           <span className="block text-sm text-muted">
-            I am visiting from outside
+            {guestBlocked
+              ? `Free morning hours are for residents. Guests can book from ${formatHour(freeUntilHour)}.`
+              : 'I am visiting from outside'}
           </span>
         </span>
-        {suggested === 'guest' ? (
+        {suggested === 'guest' && !guestBlocked ? (
           <span className="rounded-full bg-court-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-court-dark dark:bg-court/20 dark:text-court-soft">
             Last used
           </span>

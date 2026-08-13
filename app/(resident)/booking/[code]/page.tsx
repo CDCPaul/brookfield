@@ -1,10 +1,13 @@
 import { notFound } from 'next/navigation';
 
+import { bookerLabel } from '@/components/booker-label';
+import { PaymentBadge, StatusBadge } from '@/components/booking-status';
+import { PaymentInstructions } from '@/components/payment-instructions';
 import { PrimaryLink, SportBadge } from '@/components/ui';
 import { isValidBookingCode, normalizeBookingCode } from '@/lib/booking-code';
 import { getBookingByCode } from '@/lib/queries/bookings';
-import { getSlot } from '@/lib/schedule';
-import { bookerLabel } from '@/components/booker-label';
+import { getSettings, isPaymentConfigured } from '@/lib/queries/settings';
+import { formatPeso, getSlot } from '@/lib/schedule';
 import { formatLongDate } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
@@ -20,36 +23,20 @@ export default async function BookingConfirmationPage({
   const booking = await getBookingByCode(normalizeBookingCode(code));
   if (!booking) notFound();
 
+  const { payment } = await getSettings();
   const slot = getSlot(booking.slotIndex);
-  const cancelled = booking.status === 'cancelled';
+  const owes = booking.amount > 0 && booking.paymentStatus !== 'paid';
 
   return (
     <div className="space-y-5">
       <section className="text-center">
-        <div
-          className={`mx-auto grid size-14 place-items-center rounded-full ${
-            cancelled ? 'bg-background text-muted' : 'bg-court text-white'
-          }`}
-          aria-hidden="true"
-        >
-          {cancelled ? (
-            <svg viewBox="0 0 24 24" className="size-7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24" className="size-7" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 12.5l4.5 4.5L19 7.5" />
-            </svg>
-          )}
-        </div>
-        <h1 className="mt-3 text-2xl font-bold tracking-tight">
-          {cancelled ? 'Booking cancelled' : "You're booked"}
+        <h1 className="text-2xl font-bold tracking-tight">
+          {headline(booking.status)}
         </h1>
-        <p className="mt-1 text-sm text-muted">
-          {cancelled
-            ? 'This slot has been released.'
-            : 'Please arrive a few minutes early.'}
+        <p className="mt-2">
+          <StatusBadge status={booking.status} />
         </p>
+        <p className="mt-2 text-sm text-muted">{subtitle(booking.status)}</p>
       </section>
 
       <section className="rounded-2xl border border-edge bg-surface p-5">
@@ -78,15 +65,60 @@ export default async function BookingConfirmationPage({
             value={bookerLabel(booking) ?? 'Guest'}
           />
           <Row label="Mobile" value={booking.phone} />
+          <Row
+            label="Price"
+            value={booking.amount > 0 ? formatPeso(booking.amount) : 'Free'}
+          />
           <Row label="Reference" value={booking.code} mono />
         </dl>
+
+        {booking.amount > 0 ? (
+          <p className="mt-3 border-t border-edge pt-3">
+            <PaymentBadge
+              paymentStatus={booking.paymentStatus}
+              amount={booking.amount}
+            />
+          </p>
+        ) : null}
+
+        {booking.decisionNote ? (
+          <p className="mt-3 border-t border-edge pt-3 text-sm text-muted">
+            Association note: {booking.decisionNote}
+          </p>
+        ) : null}
       </section>
 
-      <div className="space-y-2">
-        <PrimaryLink href="/my">View my bookings</PrimaryLink>
-      </div>
+      {owes && isPaymentConfigured(payment) ? (
+        <PaymentInstructions
+          payment={payment}
+          amount={booking.amount}
+          code={booking.code}
+        />
+      ) : null}
+
+      {owes && !isPaymentConfigured(payment) ? (
+        <p className="rounded-xl border border-edge bg-surface px-3.5 py-3 text-sm text-muted">
+          The association will contact you about paying {formatPeso(booking.amount)}.
+        </p>
+      ) : null}
+
+      <PrimaryLink href="/my">Go to my bookings</PrimaryLink>
     </div>
   );
+}
+
+function headline(status: string): string {
+  if (status === 'confirmed') return 'Your booking is confirmed';
+  if (status === 'rejected') return 'Request declined';
+  if (status === 'cancelled') return 'Booking cancelled';
+  return 'Request received';
+}
+
+function subtitle(status: string): string {
+  if (status === 'confirmed') return 'Please arrive a few minutes early.';
+  if (status === 'rejected') return 'The slot has been released.';
+  if (status === 'cancelled') return 'This slot has been released.';
+  return 'The association will review it shortly. You can check back here or under My bookings.';
 }
 
 function Row({
@@ -101,7 +133,9 @@ function Row({
   return (
     <div className="flex items-baseline justify-between gap-3">
       <dt className="text-muted">{label}</dt>
-      <dd className={`text-right font-medium ${mono ? 'font-mono tracking-widest' : ''}`}>
+      <dd
+        className={`text-right font-medium ${mono ? 'font-mono tracking-widest' : ''}`}
+      >
         {value}
       </dd>
     </div>
