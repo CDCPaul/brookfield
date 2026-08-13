@@ -6,7 +6,8 @@ import { PaymentInstructions } from '@/components/payment-instructions';
 import { PrimaryLink, SportBadge } from '@/components/ui';
 import { isValidBookingCode, normalizeBookingCode } from '@/lib/booking-code';
 import { getBookingByCode } from '@/lib/queries/bookings';
-import { getSettings, isPaymentConfigured } from '@/lib/queries/settings';
+import { isPaymentConfigured } from '@/lib/payment';
+import { getSettings } from '@/lib/queries/settings';
 import { formatPeso, getSlot } from '@/lib/schedule';
 import { formatLongDate } from '@/lib/time';
 

@@ -12,8 +12,7 @@ import {
 } from '@/app/actions';
 import { PaymentBadge, StatusBadge } from '@/components/booking-status';
 import { PaymentInstructions } from '@/components/payment-instructions';
-import type { PaymentConfig } from '@/lib/queries/settings';
-import { isPaymentConfigured } from '@/lib/queries/settings';
+import { PaymentProofUpload } from '@/components/payment-proof-upload';
 import {
   Field,
   Notice,
@@ -22,6 +21,7 @@ import {
   SportBadge,
   inputClass,
 } from '@/components/ui';
+import { isPaymentConfigured, type PaymentConfig } from '@/lib/payment';
 import type { BookingWithUnit } from '@/lib/queries/bookings';
 import { getSlot } from '@/lib/schedule';
 import { ADDRESS_FIELDS, loadBooker, mergeBooker } from '@/lib/stored-booker';
@@ -29,7 +29,13 @@ import { formatLongDate } from '@/lib/time';
 
 type Mode = 'phone' | 'address';
 
-export function MyBookings({ payment }: { payment: PaymentConfig }) {
+export function MyBookings({
+  payment,
+  uploadEnabled,
+}: {
+  payment: PaymentConfig;
+  uploadEnabled: boolean;
+}) {
   const [state, formAction] = useActionState<LookupState, FormData>(
     lookupBookingsAction,
     {},
@@ -171,6 +177,7 @@ export function MyBookings({ payment }: { payment: PaymentConfig }) {
               booking={booking}
               owner={state.owner ?? ''}
               payment={payment}
+              uploadEnabled={uploadEnabled}
               onCancelled={() =>
                 setCancelledIds((current) => [...current, booking.id])
               }
@@ -186,11 +193,13 @@ function BookingCard({
   booking,
   owner,
   payment,
+  uploadEnabled,
   onCancelled,
 }: {
   booking: BookingWithUnit;
   owner: string;
   payment: PaymentConfig;
+  uploadEnabled: boolean;
   onCancelled: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -248,6 +257,13 @@ function BookingCard({
             amount={booking.amount}
             code={booking.code}
           />
+          {uploadEnabled ? (
+            <PaymentProofUpload
+              bookingId={booking.id}
+              owner={owner}
+              existingUrl={booking.paymentProofUrl}
+            />
+          ) : null}
           <PaymentReferenceForm
             bookingId={booking.id}
             owner={owner}

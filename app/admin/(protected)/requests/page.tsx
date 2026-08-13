@@ -91,6 +91,22 @@ export default async function RequestsPage() {
                           <span className="font-mono">{booking.paymentRef}</span>
                         </span>
                       ) : null}
+                      {booking.paymentProofUrl ? (
+                        <a
+                          href={booking.paymentProofUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-xs font-medium underline"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={booking.paymentProofUrl}
+                            alt=""
+                            className="size-10 rounded border border-edge object-cover"
+                          />
+                          View screenshot
+                        </a>
+                      ) : null}
                     </div>
                   ) : null}
 

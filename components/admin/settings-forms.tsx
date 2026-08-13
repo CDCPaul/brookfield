@@ -11,7 +11,7 @@ import {
   type AdminFormState,
 } from '@/app/admin/actions';
 import { Field, Notice, PrimaryButton, inputClass } from '@/components/ui';
-import type { PaymentConfig } from '@/lib/queries/settings';
+import type { PaymentConfig } from '@/lib/payment';
 import type { BookingLimits } from '@/lib/rules';
 import { LAST_HOUR, OPEN_HOUR, type Pricing, type ScheduleConfig } from '@/lib/schedule';
 

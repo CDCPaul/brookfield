@@ -1,4 +1,14 @@
-import { and, asc, desc, eq, gte, inArray, lte, notInArray } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  lte,
+  notInArray,
+} from 'drizzle-orm';
 
 import { generateBookingCode } from '@/lib/booking-code';
 import { bookings, db, units, type Booking } from '@/lib/db';
@@ -268,6 +278,7 @@ const bookingWithUnitColumns = {
   amount: bookings.amount,
   paymentStatus: bookings.paymentStatus,
   paymentRef: bookings.paymentRef,
+  paymentProofUrl: bookings.paymentProofUrl,
   paidAt: bookings.paidAt,
   unitId: bookings.unitId,
   bookerName: bookings.bookerName,
@@ -421,6 +432,63 @@ export async function submitPaymentReference(
     .where(eq(bookings.id, bookingId));
 
   return { ok: true };
+}
+
+/** Attaches an uploaded screenshot, proving the same ownership as a cancel. */
+export async function attachPaymentProof(
+  bookingId: number,
+  owner: Owner,
+  url: string,
+): Promise<MutationResult> {
+  const identity =
+    owner.kind === 'unit'
+      ? eq(units.unitKey, owner.key)
+      : eq(bookings.phone, owner.key);
+
+  const [row] = await db
+    .select({ id: bookings.id, amount: bookings.amount })
+    .from(bookings)
+    .leftJoin(units, eq(bookings.unitId, units.id))
+    .where(and(eq(bookings.id, bookingId), identity, LIVE))
+    .limit(1);
+
+  if (!row) return { ok: false, message: 'Booking not found.' };
+  if (row.amount <= 0) {
+    return { ok: false, message: 'This booking is free — nothing to pay.' };
+  }
+
+  await db
+    .update(bookings)
+    .set({ paymentProofUrl: url, paymentStatus: 'submitted' })
+    .where(eq(bookings.id, bookingId));
+
+  return { ok: true };
+}
+
+/** Screenshots past their retention window, for the cleanup job. */
+export async function getExpiredProofs(
+  before: DateStr,
+): Promise<{ id: number; url: string }[]> {
+  const rows = await db
+    .select({ id: bookings.id, url: bookings.paymentProofUrl })
+    .from(bookings)
+    .where(
+      and(
+        isNotNull(bookings.paymentProofUrl),
+        lte(bookings.bookingDate, before),
+      ),
+    );
+
+  return rows.filter((row): row is { id: number; url: string } =>
+    Boolean(row.url),
+  );
+}
+
+export async function clearPaymentProof(bookingId: number): Promise<void> {
+  await db
+    .update(bookings)
+    .set({ paymentProofUrl: null })
+    .where(eq(bookings.id, bookingId));
 }
 
 export async function approveBooking(

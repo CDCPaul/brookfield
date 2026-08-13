@@ -1,5 +1,5 @@
 import { Card } from '@/components/ui';
-import type { PaymentConfig } from '@/lib/queries/settings';
+import type { PaymentConfig } from '@/lib/payment';
 import { formatPeso } from '@/lib/schedule';
 
 /**

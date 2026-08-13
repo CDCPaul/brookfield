@@ -1,4 +1,5 @@
 import { MyBookings } from '@/components/my-bookings';
+import { isBlobConfigured } from '@/lib/payment-proof';
 import { getSettings } from '@/lib/queries/settings';
 
 export const dynamic = 'force-dynamic';
@@ -15,7 +16,7 @@ export default async function MyBookingsPage() {
         </p>
       </section>
 
-      <MyBookings payment={payment} />
+      <MyBookings payment={payment} uploadEnabled={isBlobConfigured()} />
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { db, settings } from '@/lib/db';
+import { DEFAULT_PAYMENT, type PaymentConfig } from '@/lib/payment';
 import { DEFAULT_LIMITS, type BookingLimits } from '@/lib/rules';
 import {
   DEFAULT_PRICING,
@@ -19,29 +20,7 @@ const KEYS = {
   payment: 'payment',
 } as const;
 
-/**
- * How paid bookings are settled. GCash is handled without any integration:
- * the payer sends money to the association's own account and types in the
- * reference number, which the association matches against its transaction
- * history when approving the request.
- */
-export type PaymentConfig = {
-  gcashName: string;
-  gcashNumber: string;
-  /** Extra guidance shown to the payer, e.g. where to pay in cash instead. */
-  notes: string;
-};
-
-export const DEFAULT_PAYMENT: PaymentConfig = {
-  gcashName: '',
-  gcashNumber: '',
-  notes: '',
-};
-
-/** Payment instructions can only be shown once an account is configured. */
-export function isPaymentConfigured(payment: PaymentConfig): boolean {
-  return payment.gcashNumber.trim() !== '';
-}
+export type { PaymentConfig } from '@/lib/payment';
 
 function readBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
