@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
+import type { Venue } from '@/lib/courts';
 import {
   checkAdminPassword,
   endAdminSession,
@@ -182,12 +183,13 @@ export async function createClosureAction(
     return { error: 'Invalid time slot.' };
   }
 
-  const courtNo = optionalNumber(formData, 'courtNo');
-  if (courtNo !== null && (courtNo < 1 || courtNo > 4)) {
-    return { error: 'Invalid court number.' };
-  }
+  const rawVenue = text(formData, 'venue');
+  const venue: Venue | null =
+    rawVenue === 'tennis-court' || rawVenue === 'basketball-court'
+      ? rawVenue
+      : null;
 
-  await createClosure({ dateFrom, dateTo, slotIndex, courtNo, reason });
+  await createClosure({ dateFrom, dateTo, slotIndex, venue, reason });
 
   revalidatePath('/admin/closures');
   revalidatePath('/');

@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, lte } from 'drizzle-orm';
 
+import type { Venue } from '@/lib/courts';
 import { closures, db } from '@/lib/db';
 import type { Closure } from '@/lib/rules';
 import type { DateStr } from '@/lib/time';
@@ -9,7 +10,7 @@ function toClosure(row: typeof closures.$inferSelect): Closure {
     dateFrom: row.dateFrom,
     dateTo: row.dateTo,
     slotIndex: row.slotIndex,
-    courtNo: row.courtNo,
+    venue: (row.venue as Venue | null) ?? null,
     reason: row.reason,
   };
 }
@@ -34,7 +35,7 @@ export async function createClosure(input: {
   dateFrom: DateStr;
   dateTo: DateStr;
   slotIndex: number | null;
-  courtNo: number | null;
+  venue: Venue | null;
   reason: string;
 }) {
   const [row] = await db.insert(closures).values(input).returning();

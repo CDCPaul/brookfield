@@ -1,4 +1,3 @@
-import { sql } from 'drizzle-orm';
 import {
   boolean,
   date,
@@ -6,6 +5,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   serial,
   smallint,
   text,
@@ -47,7 +47,10 @@ export const bookings = pgTable(
     slotIndex: smallint('slot_index').notNull(),
     /** 'tennis' | 'pickleball' — derived from the date, stored for reporting. */
     sport: text('sport').notNull(),
-    courtNo: smallint('court_no').notNull(),
+    /** Key from lib/courts.ts: 'tennis', 'pb1'…'pb4', 'bbA', 'bbB', 'bbFull'. */
+    courtOption: text('court_option').notNull().default('tennis'),
+    /** Legacy display number. Kept for exports; conflicts use the resources. */
+    courtNo: smallint('court_no').notNull().default(1),
     /** 'resident' | 'guest'. Guests are not tied to a household. */
     bookerType: text('booker_type').notNull().default('resident'),
     /** 'free' | 'day' | 'night' — priced at the time of booking. */
@@ -84,19 +87,43 @@ export const bookings = pgTable(
   },
   (table) => [
     uniqueIndex('bookings_code_idx').on(table.code),
-    // The authority on double-booking. Two residents racing for the same court
-    // and slot will both pass the in-memory checks; only one insert survives.
-    // A pending request holds the slot — otherwise a resident would have no
-    // idea whether they had it until the association got around to approving.
-    uniqueIndex('bookings_active_slot_idx')
-      .on(table.bookingDate, table.sport, table.courtNo, table.slotIndex)
-      .where(sql`${table.status} not in ('cancelled', 'rejected')`),
     index('bookings_status_idx').on(table.status),
     index('bookings_date_idx').on(table.bookingDate),
     index('bookings_unit_idx').on(table.unitId),
     // Guests are identified by phone, and residents can look themselves up
     // by phone too.
     index('bookings_phone_idx').on(table.phone),
+  ],
+);
+
+/**
+ * The physical pieces of court a booking occupies.
+ *
+ * This is what actually prevents double-booking. A row exists only while the
+ * booking holds its slot, so cancelling or declining simply deletes the rows
+ * and frees the resource — no status to keep in sync. Playing tennis inserts
+ * four rows (one per quarter of the tennis court), which is why a single
+ * pickleball booking makes tennis impossible for that hour.
+ */
+export const bookingResources = pgTable(
+  'booking_resources',
+  {
+    bookingId: integer('booking_id')
+      .notNull()
+      .references(() => bookings.id, { onDelete: 'cascade' }),
+    bookingDate: date('booking_date', { mode: 'string' }).notNull(),
+    slotIndex: smallint('slot_index').notNull(),
+    /** 'T1'–'T4' (tennis court quarters) or 'B1'/'B2' (basketball halves). */
+    resourceKey: text('resource_key').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.bookingId, table.resourceKey] }),
+    uniqueIndex('booking_resources_slot_idx').on(
+      table.bookingDate,
+      table.slotIndex,
+      table.resourceKey,
+    ),
+    index('booking_resources_date_idx').on(table.bookingDate),
   ],
 );
 
@@ -109,8 +136,8 @@ export const closures = pgTable(
     dateTo: date('date_to', { mode: 'string' }).notNull(),
     /** null closes every slot that day. */
     slotIndex: smallint('slot_index'),
-    /** null closes every court. */
-    courtNo: smallint('court_no'),
+    /** 'tennis-court' | 'basketball-court'; null closes both surfaces. */
+    venue: text('venue'),
     reason: text('reason').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
@@ -131,3 +158,4 @@ export type Booking = typeof bookings.$inferSelect;
 export type NewBooking = typeof bookings.$inferInsert;
 export type ClosureRow = typeof closures.$inferSelect;
 export type NewClosure = typeof closures.$inferInsert;
+export type BookingResource = typeof bookingResources.$inferSelect;

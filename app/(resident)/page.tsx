@@ -1,43 +1,52 @@
 import Link from 'next/link';
 
 import { ClosureNotice } from '@/components/closure-notice';
-import { DateStrip } from '@/components/date-strip';
 import { NextBooking } from '@/components/next-booking';
-import { SlotList } from '@/components/slot-list';
-import { SportBadge } from '@/components/ui';
-import { getCalendarStrip, getDayAvailability } from '@/lib/queries/availability';
+import { Card } from '@/components/ui';
+import type { Activity } from '@/lib/courts';
+import { getActivityCounts } from '@/lib/queries/availability';
 import { getClosures } from '@/lib/queries/closures';
 import { getSettings } from '@/lib/queries/settings';
-import { formatPeso, sportLabel } from '@/lib/schedule';
+import { formatPeso } from '@/lib/schedule';
 import { addDays, formatLongDate, manilaNow } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
+
+const SPORTS: { activity: Activity; label: string; blurb: string }[] = [
+  {
+    activity: 'pickleball',
+    label: 'Pickleball',
+    blurb: 'Four courts on the tennis court',
+  },
+  { activity: 'tennis', label: 'Tennis', blurb: 'The whole tennis court' },
+  {
+    activity: 'basketball',
+    label: 'Basketball',
+    blurb: 'Half court or full court',
+  },
+];
 
 export default async function TodayPage() {
   const now = new Date();
   const today = manilaNow(now).date;
   const { limits, pricing } = await getSettings();
 
-  const [day, strip, closures] = await Promise.all([
-    getDayAvailability(today, now),
-    getCalendarStrip(now),
+  const [counts, closures] = await Promise.all([
+    getActivityCounts(today, now),
     getClosures(today, addDays(today, limits.advanceDays)),
   ]);
-
-  const dayIsOver = day.openCount === 0 && day.capacity > 0;
-  const dayPrice = pricing.day[day.sport];
-  const nightPrice = pricing.night[day.sport];
 
   return (
     <div className="space-y-5">
       <section>
         <p className="text-sm text-muted">{formatLongDate(today)}</p>
         <h1 className="mt-1 text-2xl font-bold tracking-tight">
-          {sportLabel(day.sport)} today
+          Book a court today
         </h1>
         <p className="mt-1 text-sm text-muted">
-          Free 6:00 – 9:00 AM for residents · {formatPeso(dayPrice)}–
-          {formatPeso(nightPrice)} per hour after that
+          Free 6:00 – 9:00 AM for residents ·{' '}
+          {formatPeso(pricing.day.pickleball)}–
+          {formatPeso(pricing.night.tennis)} per hour after that
         </p>
       </section>
 
@@ -45,42 +54,45 @@ export default async function TodayPage() {
 
       <ClosureNotice closures={closures} />
 
-      {/* Above the slot list: with eighteen hourly slots, a strip below them
-          would sit far past the fold. Pick a day, then pick a time. */}
       <section className="space-y-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
-          Next 7 days
-        </h2>
-        <DateStrip days={strip} selected={today} />
+        {SPORTS.map((sport) => {
+          const open = counts[sport.activity];
+          return (
+            <Link
+              key={sport.activity}
+              href={`/book?sport=${sport.activity}`}
+              className="flex items-center gap-3 rounded-2xl border border-edge bg-surface p-4 active:bg-background"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block text-base font-semibold">
+                  {sport.label}
+                </span>
+                <span className="block text-sm text-muted">{sport.blurb}</span>
+              </span>
+              <span className="shrink-0 text-right">
+                <span
+                  className={`block text-lg font-bold ${
+                    open === 0 ? 'text-muted' : 'text-court'
+                  }`}
+                >
+                  {open}
+                </span>
+                <span className="block text-[11px] text-muted">open today</span>
+              </span>
+              <span aria-hidden="true" className="shrink-0 text-muted">
+                ›
+              </span>
+            </Link>
+          );
+        })}
       </section>
 
-      {dayIsOver ? (
-        <section className="rounded-2xl border border-edge bg-surface p-5 text-center">
-          <p className="text-base font-semibold">Nothing left today</p>
-          <p className="mt-1 text-sm text-muted">
-            Pick another day below to book.
-          </p>
-        </section>
-      ) : (
-        <>
-          <section className="flex items-center justify-between rounded-2xl border border-edge bg-surface px-4 py-3">
-            <SportBadge sport={day.sport} />
-            <p className="text-sm font-medium">
-              <span className="text-court">{day.openCount}</span>
-              <span className="text-muted"> of {day.capacity} open</span>
-            </p>
-          </section>
-
-          <SlotList day={day} />
-        </>
-      )}
-
-      <section className="rounded-2xl border border-edge bg-surface p-4">
+      <Card>
         <h2 className="text-sm font-semibold">Good to know</h2>
         <ul className="mt-2 space-y-1.5 text-sm text-muted">
           <li>
-            🎾 Tennis on Mon, Wed, Fri and Sun · 🏓 Pickleball on Tue, Thu and
-            Sat
+            The tennis court doubles as four pickleball courts, so booking
+            either one uses it up
           </li>
           <li>Every booking is reviewed by the association before it is confirmed</li>
           {limits.enabled ? (
@@ -97,7 +109,7 @@ export default async function TodayPage() {
         >
           Read the full rules
         </Link>
-      </section>
+      </Card>
     </div>
   );
 }

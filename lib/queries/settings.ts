@@ -1,3 +1,4 @@
+import { DEFAULT_COURT_CONFIG, type CourtConfig } from '@/lib/courts';
 import { db, settings } from '@/lib/db';
 import { DEFAULT_PAYMENT, type PaymentConfig } from '@/lib/payment';
 import { DEFAULT_LIMITS, type BookingLimits } from '@/lib/rules';
@@ -18,6 +19,7 @@ const KEYS = {
   schedule: 'schedule',
   pricing: 'pricing',
   payment: 'payment',
+  courts: 'courts',
 } as const;
 
 export type { PaymentConfig } from '@/lib/payment';
@@ -58,7 +60,27 @@ export type AssociationSettings = {
   schedule: ScheduleConfig;
   pricing: Pricing;
   payment: PaymentConfig;
+  courts: CourtConfig;
 };
+
+function toCourts(stored: Map<string, unknown>): CourtConfig {
+  const raw = stored.get(KEYS.courts);
+  const source = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<
+    string,
+    unknown
+  >;
+
+  return {
+    paidTennisEnabled: readBoolean(
+      source.paidTennisEnabled,
+      DEFAULT_COURT_CONFIG.paidTennisEnabled,
+    ),
+    basketballEnabled: readBoolean(
+      source.basketballEnabled,
+      DEFAULT_COURT_CONFIG.basketballEnabled,
+    ),
+  };
+}
 
 function readText(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback;
@@ -152,6 +174,7 @@ export async function getSettings(): Promise<AssociationSettings> {
     schedule: toSchedule(stored),
     pricing: toPricing(stored),
     payment: toPayment(stored),
+    courts: toCourts(stored),
   };
 }
 
@@ -176,4 +199,8 @@ export async function savePricing(pricing: Pricing): Promise<void> {
 
 export async function savePayment(payment: PaymentConfig): Promise<void> {
   await write(KEYS.payment, payment);
+}
+
+export async function saveCourts(courts: CourtConfig): Promise<void> {
+  await write(KEYS.courts, courts);
 }

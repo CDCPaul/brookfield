@@ -57,9 +57,11 @@ export default async function ClosuresPage() {
                       ? 'All slots'
                       : SLOTS[closure.slotIndex].label}
                     {' · '}
-                    {closure.courtNo === null
+                    {closure.venue === null
                       ? 'All courts'
-                      : `Court ${closure.courtNo}`}
+                      : closure.venue === 'tennis-court'
+                        ? 'Tennis court'
+                        : 'Basketball court'}
                   </p>
                 </div>
                 <DeleteClosureButton id={closure.id} />

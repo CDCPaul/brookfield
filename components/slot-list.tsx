@@ -1,36 +1,46 @@
 import Link from 'next/link';
 
-import type { DayAvailability, SlotAvailability, TierGroup } from '@/lib/rules';
+import type { Activity } from '@/lib/courts';
+import type {
+  DayAvailability,
+  OptionAvailability,
+  SlotAvailability,
+  TierGroup,
+} from '@/lib/rules';
 import { formatPeso } from '@/lib/schedule';
 
-const STATUS_LABEL = {
-  taken: 'Taken',
-  closed: 'Closed',
-  past: 'Passed',
-  open: 'Open',
-} as const;
+export function SlotList({
+  day,
+  activity,
+}: {
+  day: DayAvailability;
+  activity: Activity;
+}) {
+  if (day.groups.length === 0) {
+    return (
+      <p className="rounded-xl border border-edge bg-surface px-4 py-6 text-center text-sm text-muted">
+        {activity === 'basketball'
+          ? 'The basketball court is not open for booking.'
+          : 'Nothing to book here today.'}
+      </p>
+    );
+  }
 
-export function SlotList({ day }: { day: DayAvailability }) {
   return (
     <div className="space-y-6">
       {day.groups.map((group) => (
-        <TierSection key={group.tier} day={day} group={group} />
+        <TierSection key={group.tier} date={day.date} group={group} />
       ))}
     </div>
   );
 }
 
-function TierSection({
-  day,
-  group,
-}: {
-  day: DayAvailability;
-  group: TierGroup;
-}) {
+function TierSection({ date, group }: { date: string; group: TierGroup }) {
   // A slot whose start time has gone is dead weight — on an eighteen-hour day
   // it can push everything bookable past the fold.
   const upcoming = group.slots.filter((slot) => !hasPassed(slot));
   const allPassed = group.slots.every(hasPassed);
+  const price = group.slots[0]?.options[0]?.price ?? 0;
 
   return (
     <section>
@@ -41,14 +51,14 @@ function TierSection({
         </div>
         <span
           className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
-            group.tier === 'free'
+            price === 0
               ? 'bg-court-soft text-court-dark dark:bg-court/20 dark:text-court-soft'
               : 'bg-orange-100 text-clay dark:bg-orange-950/50'
           }`}
         >
-          {group.tier === 'free'
+          {price === 0
             ? 'Free for residents'
-            : `${formatPeso(group.price)} / hour`}
+            : `from ${formatPeso(price)} / hour`}
         </span>
       </div>
 
@@ -59,7 +69,7 @@ function TierSection({
       ) : (
         <ul className="space-y-2">
           {upcoming.map((slot) => (
-            <SlotRow key={slot.slotIndex} date={day.date} slot={slot} />
+            <SlotRow key={slot.slotIndex} date={date} slot={slot} />
           ))}
         </ul>
       )}
@@ -67,91 +77,116 @@ function TierSection({
   );
 }
 
-function hasPassed(slot: SlotAvailability): boolean {
-  return slot.courts.every((court) => court.status === 'past');
-}
-
 function SlotRow({ date, slot }: { date: string; slot: SlotAvailability }) {
-  const single = slot.courts.length === 1;
-  const soleCourt = slot.courts[0];
-
   if (slot.openCount === 0) {
+    // Say what is in the way. Without it, a court blocked by a booking on the
+    // *other* sport just looks broken.
+    const reason = slot.options.find((option) => option.reason)?.reason;
+
     return (
-      <li className="flex items-center justify-between rounded-xl border border-edge bg-background px-4 py-3">
-        <span className="text-sm text-muted">{slot.label}</span>
-        <span className="text-xs font-medium text-muted">
-          {describeUnavailable(slot.courts)}
-        </span>
+      <li className="rounded-xl border border-edge bg-background px-4 py-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm text-muted">{slot.label}</span>
+          <span className="text-xs font-medium text-muted">Unavailable</span>
+        </div>
+        {reason ? (
+          <p className="mt-1 text-xs text-muted">{reason}</p>
+        ) : null}
       </li>
     );
   }
+
+  const single = slot.options.length === 1;
+  const sole = slot.options[0];
 
   return (
     <li className="rounded-xl border border-edge bg-surface p-3.5">
       <div className="flex items-baseline justify-between gap-2">
         <h3 className="text-base font-semibold">{slot.label}</h3>
         <span className="text-xs font-medium text-court">
-          {slot.openCount} of {slot.courts.length} open
+          {slot.openCount} of {slot.options.length} open
         </span>
       </div>
 
       {single ? (
         <div className="mt-2.5">
-          {soleCourt.status === 'open' ? (
-            <Link
-              href={`/book/confirm?date=${date}&slot=${slot.slotIndex}&court=1`}
-              className="inline-flex w-full items-center justify-center rounded-xl bg-court px-4 py-3 text-sm font-semibold text-white active:bg-court-dark"
-            >
-              {slot.price > 0
-                ? `Request — ${formatPeso(slot.price)}`
-                : 'Request this slot'}
-            </Link>
-          ) : (
-            <p className="rounded-xl bg-background px-4 py-3 text-center text-sm text-muted">
-              {soleCourt.status === 'closed'
-                ? `Closed — ${soleCourt.reason}`
-                : STATUS_LABEL[soleCourt.status]}
-            </p>
-          )}
+          <OptionButton date={date} slot={slot} entry={sole} wide />
         </div>
       ) : (
-        <ul className="mt-2.5 grid grid-cols-4 gap-2">
-          {slot.courts.map((court) =>
-            court.status === 'open' ? (
-              <li key={court.courtNo}>
-                <Link
-                  href={`/book/confirm?date=${date}&slot=${slot.slotIndex}&court=${court.courtNo}`}
-                  aria-label={`Request court ${court.courtNo} at ${slot.label}`}
-                  className="flex flex-col items-center rounded-xl border border-court bg-court-soft py-2.5 text-court-dark active:bg-court active:text-white dark:bg-court/15 dark:text-court-soft"
-                >
-                  <span className="text-xs font-medium">Court</span>
-                  <span className="text-lg font-bold leading-tight">
-                    {court.courtNo}
-                  </span>
-                </Link>
-              </li>
-            ) : (
-              <li key={court.courtNo}>
-                <div
-                  title={court.reason}
-                  className="flex flex-col items-center rounded-xl border border-edge bg-background py-2.5 text-muted"
-                >
-                  <span className="text-xs font-medium">Court</span>
-                  <span className="text-lg font-bold leading-tight line-through decoration-1">
-                    {court.courtNo}
-                  </span>
-                </div>
-              </li>
-            ),
-          )}
+        <ul
+          className={`mt-2.5 grid gap-2 ${
+            slot.options.length > 2 ? 'grid-cols-4' : 'grid-cols-2'
+          }`}
+        >
+          {slot.options.map((entry) => (
+            <li key={entry.option.key}>
+              <OptionButton date={date} slot={slot} entry={entry} />
+            </li>
+          ))}
         </ul>
       )}
     </li>
   );
 }
 
-function describeUnavailable(courts: SlotAvailability['courts']): string {
-  if (courts.every((court) => court.status === 'past')) return 'Passed';
-  if (courts.some((court) => court.status === 'closed')) return 'Closed';
-  return 'Fully booked';
+function OptionButton({
+  date,
+  slot,
+  entry,
+  wide = false,
+}: {
+  date: string;
+  slot: SlotAvailability;
+  entry: OptionAvailability;
+  wide?: boolean;
+}) {
+  if (entry.status !== 'open') {
+    return (
+      <div
+        title={entry.reason}
+        className={`flex flex-col items-center rounded-xl border border-edge bg-background py-2.5 text-muted ${
+          wide ? 'px-4' : ''
+        }`}
+      >
+        <span className="text-xs font-medium line-through decoration-1">
+          {entry.option.short}
+        </span>
+        {wide && entry.reason ? (
+          <span className="mt-0.5 text-[11px]">{entry.reason}</span>
+        ) : null}
+      </div>
+    );
+  }
+
+  const href = `/book/confirm?date=${date}&slot=${slot.slotIndex}&option=${entry.option.key}`;
+
+  if (wide) {
+    return (
+      <Link
+        href={href}
+        className="inline-flex w-full items-center justify-center rounded-xl bg-court px-4 py-3 text-sm font-semibold text-white active:bg-court-dark"
+      >
+        {entry.price > 0
+          ? `${entry.option.short} — ${formatPeso(entry.price)}`
+          : `Request ${entry.option.short.toLowerCase()}`}
+      </Link>
+    );
+  }
+
+  return (
+    <Link
+      href={href}
+      aria-label={`Request ${entry.option.label} at ${slot.label}`}
+      className="flex flex-col items-center rounded-xl border border-court bg-court-soft py-2.5 text-court-dark active:bg-court active:text-white dark:bg-court/15 dark:text-court-soft"
+    >
+      <span className="text-xs font-semibold">{entry.option.short}</span>
+      {entry.price > 0 ? (
+        <span className="text-[11px]">{formatPeso(entry.price)}</span>
+      ) : null}
+    </Link>
+  );
+}
+
+function hasPassed(slot: SlotAvailability): boolean {
+  return slot.options.every((option) => option.status === 'past');
 }

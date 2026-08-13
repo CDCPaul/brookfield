@@ -1,4 +1,10 @@
+import { findOption } from '@/lib/courts';
 import { formatUnitLabel } from '@/lib/unit-key';
+
+/** What was actually booked, e.g. 'Pickleball court 2' or 'Basketball full court'. */
+export function courtLabel(booking: { courtOption: string }): string {
+  return findOption(booking.courtOption)?.label ?? booking.courtOption;
+}
 
 export type BookerFields = {
   bookerType: string;

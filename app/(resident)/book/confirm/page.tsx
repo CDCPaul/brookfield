@@ -2,18 +2,12 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { BookingForm } from '@/components/booking-form';
-import { Notice, SportBadge } from '@/components/ui';
+import { Notice } from '@/components/ui';
+import { activityLabel, findOption } from '@/lib/courts';
 import { getDayAvailability } from '@/lib/queries/availability';
 import { getSettings } from '@/lib/queries/settings';
 import { findSlotAvailability } from '@/lib/rules';
-import {
-  formatPeso,
-  getSlot,
-  isValidCourtNo,
-  isValidSlotIndex,
-  sportForDate,
-  tierLabel,
-} from '@/lib/schedule';
+import { formatPeso, getSlot, isValidSlotIndex, tierLabel } from '@/lib/schedule';
 import { formatLongDate, isValidDateStr } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
@@ -21,35 +15,37 @@ export const dynamic = 'force-dynamic';
 export default async function ConfirmPage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string; slot?: string; court?: string }>;
+  searchParams: Promise<{ date?: string; slot?: string; option?: string }>;
 }) {
   const params = await searchParams;
   const date = params.date ?? '';
   const slotIndex = Number(params.slot);
-  const courtNo = Number(params.court);
+  const option = findOption(params.option ?? '');
 
-  if (!isValidDateStr(date) || !isValidSlotIndex(slotIndex)) notFound();
-
-  const sport = sportForDate(date);
-  if (!isValidCourtNo(sport, courtNo)) notFound();
+  if (!isValidDateStr(date) || !isValidSlotIndex(slotIndex) || !option) {
+    notFound();
+  }
 
   const slot = getSlot(slotIndex);
   const now = new Date();
   const [day, { limits, schedule }] = await Promise.all([
-    getDayAvailability(date, now),
+    getDayAvailability(date, option.activity, now),
     getSettings(),
   ]);
 
   const availability = findSlotAvailability(day, slotIndex);
-  const court = availability?.courts.find((c) => c.courtNo === courtNo);
-  const stillOpen = court?.status === 'open';
-  const price = availability?.price ?? 0;
+  const entry = availability?.options.find(
+    (candidate) => candidate.option.key === option.key,
+  );
+  const stillOpen = entry?.status === 'open';
+  const price = entry?.price ?? 0;
   const tier = availability?.tier ?? 'free';
+  const backHref = `/book?date=${date}&sport=${option.activity}`;
 
   return (
     <div className="space-y-5">
       <section>
-        <Link href={`/book?date=${date}`} className="text-sm text-muted">
+        <Link href={backHref} className="text-sm text-muted">
           ← Back to slots
         </Link>
         <h1 className="mt-2 text-2xl font-bold tracking-tight">
@@ -58,20 +54,13 @@ export default async function ConfirmPage({
       </section>
 
       <section className="rounded-2xl border border-edge bg-surface p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-base font-semibold">{formatLongDate(date)}</p>
-            <p className="text-sm text-muted">{slot.label}</p>
-            <p className="mt-1 text-sm font-medium">
-              {sport === 'tennis' ? 'Tennis court' : `Pickleball court ${courtNo}`}
-            </p>
-          </div>
-          <SportBadge sport={sport} />
-        </div>
+        <p className="text-base font-semibold">{formatLongDate(date)}</p>
+        <p className="text-sm text-muted">{slot.label}</p>
+        <p className="mt-1 text-sm font-medium">{option.label}</p>
 
         <div className="mt-3 flex items-center justify-between border-t border-edge pt-3">
           <span className="text-sm text-muted">
-            {tierLabel(tier)}
+            {activityLabel(option.activity)} · {tierLabel(tier)}
             {tier === 'free' ? ' · residents only' : ''}
           </span>
           <span className="text-lg font-bold">
@@ -90,7 +79,7 @@ export default async function ConfirmPage({
           <BookingForm
             date={date}
             slotIndex={slotIndex}
-            courtNo={courtNo}
+            optionKey={option.key}
             price={price}
             freeUntilHour={schedule.freeUntilHour}
           />
@@ -103,9 +92,9 @@ export default async function ConfirmPage({
         </>
       ) : (
         <Notice tone="error">
-          This slot is no longer available. Please{' '}
-          <Link href={`/book?date=${date}`} className="underline">
-            pick another one
+          {entry?.reason ?? 'This court is no longer available.'}{' '}
+          <Link href={backHref} className="underline">
+            Pick another slot
           </Link>
           .
         </Notice>

@@ -1,6 +1,6 @@
 import { BookingActions } from '@/components/admin/booking-actions';
 import { DateNav } from '@/components/admin/date-nav';
-import { GuestBadge, bookerLabel } from '@/components/booker-label';
+import { GuestBadge, bookerLabel, courtLabel } from '@/components/booker-label';
 import { PaymentBadge, StatusBadge } from '@/components/booking-status';
 import { Notice, SportBadge } from '@/components/ui';
 import { getBookingsForDate } from '@/lib/queries/bookings';
@@ -77,9 +77,7 @@ export default async function AdminBookingsPage({
                   ? 'all slots'
                   : getSlot(closure.slotIndex).label}{' '}
                 ·{' '}
-                {closure.courtNo === null
-                  ? 'all courts'
-                  : `court ${closure.courtNo}`}
+                {closure.venue === null ? 'all courts' : closure.venue}
               </li>
             ))}
           </ul>
@@ -136,9 +134,7 @@ export default async function AdminBookingsPage({
                             {getSlot(booking.slotIndex).label}
                           </p>
                           <p className="text-xs text-muted">
-                            {booking.sport === 'tennis'
-                              ? 'Tennis'
-                              : `Court ${booking.courtNo}`}
+                            {courtLabel(booking)}
                           </p>
                         </div>
                       </div>

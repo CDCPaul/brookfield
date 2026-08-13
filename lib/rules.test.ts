@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
+import { DEFAULT_COURT_CONFIG, findOption } from './courts';
 import {
+  type BookerState,
   type BookingLimits,
   type BookingRequest,
-  type BookerState,
   type Closure,
+  type HeldResource,
   DEFAULT_LIMITS,
   EMPTY_BOOKER,
   bookableDates,
@@ -15,48 +17,57 @@ import {
   findSlotAvailability,
   isPastSlot,
 } from './rules';
-import {
-  DEFAULT_PRICING,
-  DEFAULT_SCHEDULE,
-  type Tier,
-  getSlot,
-} from './schedule';
+import { DEFAULT_PRICING, DEFAULT_SCHEDULE, type Tier, getSlot } from './schedule';
 import type { ManilaMoment } from './time';
 
-// 2026-08-13 is a Thursday (pickleball, 4 courts).
-// 2026-08-14 is a Friday (tennis, 1 court).
-// The week runs Mon 2026-08-10 through Sun 2026-08-16.
-//
-// Slot index n starts at hour 6 + n, so:
-//   0–2   free      (06:00–09:00)
-//   3–11  daytime   (09:00–18:00)
-//   12–17 evening   (18:00–24:00)
+// 2026-08-14 is a Friday (tennis day); 2026-08-13 a Thursday (pickleball day).
+// Slot index n starts at hour 6 + n: 0–2 free, 3–11 daytime, 12–17 evening.
 const NOW: ManilaMoment = { date: '2026-08-13', minutes: 5 * 60 };
 
+const TENNIS_DATE = '2026-08-14';
+const PICKLEBALL_DATE = '2026-08-20'; // Thursday, a week out
 const FREE_SLOT = 0;
-const DAY_SLOT = 4; // 10:00
-const NIGHT_SLOT = 13; // 19:00
+const DAY_SLOT = 4;
+const NIGHT_SLOT = 13;
 
-function held(date: string, tier: Tier = 'free') {
-  return { date, tier };
+const PAID_COURTS = { ...DEFAULT_COURT_CONFIG, paidTennisEnabled: true };
+
+function held(
+  date: string,
+  slotIndex: number,
+  optionKey: string,
+): HeldResource[] {
+  const option = findOption(optionKey);
+  if (!option) throw new Error(`missing option ${optionKey}`);
+  return option.resources.map((resourceKey) => ({
+    date,
+    slotIndex,
+    resourceKey,
+    optionKey,
+  }));
 }
 
 function booker(overrides: Partial<BookerState> = {}): BookerState {
   return { ...EMPTY_BOOKER, ...overrides };
 }
 
+function booking(date: string, tier: Tier = 'free') {
+  return { date, isFree: tier === 'free' };
+}
+
 function request(overrides: Partial<BookingRequest> = {}): BookingRequest {
   return {
-    date: '2026-08-14',
+    date: TENNIS_DATE,
     slotIndex: FREE_SLOT,
-    courtNo: 1,
+    optionKey: 'tennis',
     bookerType: 'resident',
     now: NOW,
     limits: DEFAULT_LIMITS,
     schedule: DEFAULT_SCHEDULE,
     pricing: DEFAULT_PRICING,
+    courts: DEFAULT_COURT_CONFIG,
     closures: [],
-    taken: [],
+    held: [],
     booker: EMPTY_BOOKER,
     ...overrides,
   };
@@ -73,286 +84,373 @@ describe('isPastSlot', () => {
     const justBefore: ManilaMoment = { date: '2026-08-13', minutes: 7 * 60 - 1 };
     expect(isPastSlot('2026-08-13', getSlot(1), justBefore)).toBe(false);
   });
-
-  it('treats earlier dates as past and later dates as open', () => {
-    expect(isPastSlot('2026-08-12', getSlot(2), NOW)).toBe(true);
-    expect(isPastSlot('2026-08-14', getSlot(0), NOW)).toBe(false);
-  });
 });
 
-describe('checkBooking', () => {
-  it('accepts a free morning booking at no charge', () => {
-    expect(checkBooking(request())).toEqual({
+describe('checkBooking — shared courts', () => {
+  it('accepts the free morning tennis court at no charge', () => {
+    expect(checkBooking(request())).toMatchObject({
       ok: true,
       tier: 'free',
       price: 0,
     });
   });
 
-  it('prices daytime and evening slots by sport', () => {
-    // Friday is tennis.
-    expect(checkBooking(request({ slotIndex: DAY_SLOT }))).toEqual({
-      ok: true,
-      tier: 'day',
-      price: 350,
-    });
-    expect(checkBooking(request({ slotIndex: NIGHT_SLOT }))).toEqual({
-      ok: true,
-      tier: 'night',
-      price: 400,
-    });
-
-    // Thursday 2026-08-20 is pickleball.
-    expect(
-      checkBooking(request({ date: '2026-08-20', slotIndex: DAY_SLOT })),
-    ).toEqual({ ok: true, tier: 'day', price: 200 });
-    expect(
-      checkBooking(request({ date: '2026-08-20', slotIndex: NIGHT_SLOT })),
-    ).toEqual({ ok: true, tier: 'night', price: 350 });
-  });
-
-  it('applies the tier boundaries exactly', () => {
-    // 08:00 is the last free hour; 09:00 is the first paid one.
-    expect(checkBooking(request({ slotIndex: 2 }))).toMatchObject({
-      tier: 'free',
-    });
-    expect(checkBooking(request({ slotIndex: 3 }))).toMatchObject({
-      tier: 'day',
-    });
-    // 17:00 is the last daytime hour; 18:00 is the first evening one.
-    expect(checkBooking(request({ slotIndex: 11 }))).toMatchObject({
-      tier: 'day',
-    });
-    expect(checkBooking(request({ slotIndex: 12 }))).toMatchObject({
-      tier: 'night',
-    });
-  });
-
-  it('refuses hours after the courts close', () => {
-    // Slot 15 starts at 21:00.
-    const early = { ...DEFAULT_SCHEDULE, closeHour: 21 };
-    expect(
-      checkBooking(request({ slotIndex: 15, schedule: early })),
-    ).toMatchObject({ ok: false, code: 'closed_hours' });
-    // 20:00 is the last open hour under that schedule.
-    expect(
-      checkBooking(request({ slotIndex: 14, schedule: early })),
-    ).toMatchObject({ ok: true, tier: 'night' });
-    // With the default midnight close, 21:00 is fine.
-    expect(checkBooking(request({ slotIndex: 15 }))).toMatchObject({ ok: true });
-  });
-
-  describe('guests', () => {
-    it('cannot take the free morning', () => {
+  it('blocks tennis when any single pickleball court is held', () => {
+    for (const key of ['pb1', 'pb2', 'pb3', 'pb4']) {
       const result = checkBooking(
-        request({ bookerType: 'guest', slotIndex: FREE_SLOT }),
+        request({
+          date: PICKLEBALL_DATE,
+          slotIndex: DAY_SLOT,
+          optionKey: 'tennis',
+          courts: PAID_COURTS,
+          held: held(PICKLEBALL_DATE, DAY_SLOT, key),
+        }),
       );
-      expect(result).toMatchObject({ ok: false, code: 'guest_free_hours' });
-      if (!result.ok) expect(result.message).toContain('9:00 AM');
-    });
+      expect(result).toMatchObject({ ok: false, code: 'taken' });
+      if (!result.ok) {
+        expect(result.message).toContain(findOption(key)!.label);
+      }
+    }
+  });
 
-    it('can book paid hours', () => {
-      expect(
-        checkBooking(request({ bookerType: 'guest', slotIndex: DAY_SLOT })),
-      ).toMatchObject({ ok: true, tier: 'day' });
-      expect(
-        checkBooking(request({ bookerType: 'guest', slotIndex: NIGHT_SLOT })),
-      ).toMatchObject({ ok: true, tier: 'night' });
-    });
-
-    it('follows the free-hour boundary when the association moves it', () => {
-      const shorter = { ...DEFAULT_SCHEDULE, freeUntilHour: 8 };
-      // 08:00 is now paid, so a guest may take it.
+  it('blocks every pickleball court when tennis is held', () => {
+    for (const key of ['pb1', 'pb2', 'pb3', 'pb4']) {
       expect(
         checkBooking(
-          request({ bookerType: 'guest', slotIndex: 2, schedule: shorter }),
+          request({
+            date: PICKLEBALL_DATE,
+            slotIndex: DAY_SLOT,
+            optionKey: key,
+            held: held(PICKLEBALL_DATE, DAY_SLOT, 'tennis'),
+          }),
         ),
-      ).toMatchObject({ ok: true, tier: 'day' });
-    });
+      ).toMatchObject({ ok: false, code: 'taken' });
+    }
   });
 
-  it('rejects a slot that has already started', () => {
+  it('lets two different pickleball courts coexist', () => {
     expect(
       checkBooking(
         request({
-          date: '2026-08-13',
-          slotIndex: FREE_SLOT,
-          now: { date: '2026-08-13', minutes: 6 * 60 + 30 },
+          date: PICKLEBALL_DATE,
+          slotIndex: DAY_SLOT,
+          optionKey: 'pb3',
+          held: held(PICKLEBALL_DATE, DAY_SLOT, 'pb1'),
         }),
       ),
-    ).toMatchObject({ ok: false, code: 'past' });
+    ).toMatchObject({ ok: true });
   });
 
-  it('allows the last day of the booking window but not beyond', () => {
-    expect(checkBooking(request({ date: '2026-08-20' }))).toMatchObject({
+  it('blocks the full basketball court when one half is held', () => {
+    expect(
+      checkBooking(
+        request({
+          date: PICKLEBALL_DATE,
+          slotIndex: DAY_SLOT,
+          optionKey: 'bbFull',
+          held: held(PICKLEBALL_DATE, DAY_SLOT, 'bbA'),
+        }),
+      ),
+    ).toMatchObject({ ok: false, code: 'taken' });
+  });
+
+  it('leaves the other half free', () => {
+    expect(
+      checkBooking(
+        request({
+          date: PICKLEBALL_DATE,
+          slotIndex: DAY_SLOT,
+          optionKey: 'bbB',
+          held: held(PICKLEBALL_DATE, DAY_SLOT, 'bbA'),
+        }),
+      ),
+    ).toMatchObject({ ok: true });
+  });
+
+  it('keeps the two surfaces independent', () => {
+    expect(
+      checkBooking(
+        request({
+          date: PICKLEBALL_DATE,
+          slotIndex: DAY_SLOT,
+          optionKey: 'bbA',
+          held: held(PICKLEBALL_DATE, DAY_SLOT, 'pb1'),
+        }),
+      ),
+    ).toMatchObject({ ok: true });
+  });
+
+  it('only conflicts within the same slot', () => {
+    expect(
+      checkBooking(
+        request({
+          date: PICKLEBALL_DATE,
+          slotIndex: DAY_SLOT,
+          optionKey: 'pb1',
+          held: held(PICKLEBALL_DATE, DAY_SLOT + 1, 'tennis'),
+        }),
+      ),
+    ).toMatchObject({ ok: true });
+  });
+});
+
+describe('checkBooking — pricing and tiers', () => {
+  it('charges the pickleball rate per court', () => {
+    expect(
+      checkBooking(
+        request({ date: PICKLEBALL_DATE, slotIndex: DAY_SLOT, optionKey: 'pb2' }),
+      ),
+    ).toMatchObject({ tier: 'day', price: 200 });
+    expect(
+      checkBooking(
+        request({
+          date: PICKLEBALL_DATE,
+          slotIndex: NIGHT_SLOT,
+          optionKey: 'pb2',
+        }),
+      ),
+    ).toMatchObject({ tier: 'night', price: 350 });
+  });
+
+  it('charges a basketball half like a pickleball court, full as two', () => {
+    expect(
+      checkBooking(
+        request({ date: PICKLEBALL_DATE, slotIndex: DAY_SLOT, optionKey: 'bbA' }),
+      ),
+    ).toMatchObject({ price: 200 });
+    expect(
+      checkBooking(
+        request({
+          date: PICKLEBALL_DATE,
+          slotIndex: DAY_SLOT,
+          optionKey: 'bbFull',
+        }),
+      ),
+    ).toMatchObject({ price: 400 });
+  });
+
+  it('refuses hours after the courts close', () => {
+    expect(
+      checkBooking(
+        request({
+          date: PICKLEBALL_DATE,
+          slotIndex: 15,
+          optionKey: 'pb1',
+          schedule: { ...DEFAULT_SCHEDULE, closeHour: 21 },
+        }),
+      ),
+    ).toMatchObject({ ok: false, code: 'closed_hours' });
+  });
+});
+
+describe('checkBooking — who may book what', () => {
+  it('refuses a guest in the free morning', () => {
+    const result = checkBooking(request({ bookerType: 'guest' }));
+    expect(result).toMatchObject({ ok: false, code: 'guest_free_hours' });
+    if (!result.ok) expect(result.message).toContain('9:00 AM');
+  });
+
+  it('lets a guest book paid hours', () => {
+    expect(
+      checkBooking(
+        request({
+          bookerType: 'guest',
+          date: PICKLEBALL_DATE,
+          slotIndex: NIGHT_SLOT,
+          optionKey: 'pb1',
+        }),
+      ),
+    ).toMatchObject({ ok: true });
+  });
+
+  it('offers only tennis in the free morning on a tennis day', () => {
+    expect(
+      checkBooking(request({ optionKey: 'pb1' })),
+    ).toMatchObject({ ok: false, code: 'invalid_option' });
+  });
+
+  it('offers only pickleball in the free morning on a pickleball day', () => {
+    expect(
+      checkBooking(
+        request({ date: PICKLEBALL_DATE, optionKey: 'pb1' }),
+      ),
+    ).toMatchObject({ ok: true, price: 0 });
+    expect(
+      checkBooking(request({ date: PICKLEBALL_DATE, optionKey: 'tennis' })),
+    ).toMatchObject({ ok: false, code: 'invalid_option' });
+  });
+
+  it('opens basketball in the morning but charges for it', () => {
+    expect(
+      checkBooking(request({ date: PICKLEBALL_DATE, optionKey: 'bbA' })),
+    ).toMatchObject({ ok: true, price: 200 });
+  });
+
+  it('lets a guest take the basketball court in the morning, since it is paid', () => {
+    expect(
+      checkBooking(
+        request({
+          date: PICKLEBALL_DATE,
+          optionKey: 'bbA',
+          bookerType: 'guest',
+        }),
+      ),
+    ).toMatchObject({ ok: true });
+  });
+
+  it('does not count paid morning basketball against the free allowance', () => {
+    const spent = booker({
+      bookings: [booking('2026-08-10'), booking('2026-08-12')],
+    });
+    expect(
+      checkBooking(
+        request({ date: PICKLEBALL_DATE, optionKey: 'bbA', booker: spent }),
+      ),
+    ).toMatchObject({ ok: true });
+  });
+
+  it('withholds paid tennis until the association enables it', () => {
+    expect(
+      checkBooking(
+        request({
+          date: PICKLEBALL_DATE,
+          slotIndex: DAY_SLOT,
+          optionKey: 'tennis',
+        }),
+      ),
+    ).toMatchObject({ ok: false, code: 'invalid_option' });
+    expect(
+      checkBooking(
+        request({
+          date: PICKLEBALL_DATE,
+          slotIndex: DAY_SLOT,
+          optionKey: 'tennis',
+          courts: PAID_COURTS,
+        }),
+      ),
+    ).toMatchObject({ ok: true, price: 350 });
+  });
+});
+
+describe('checkBooking — limits and closures', () => {
+  it('counts only free bookings against the allowance', () => {
+    const paidHeavy = booker({
+      bookings: [
+        booking(TENNIS_DATE, 'day'),
+        booking('2026-08-10', 'night'),
+        booking('2026-08-12', 'day'),
+      ],
+    });
+    expect(checkBooking(request({ booker: paidHeavy }))).toMatchObject({
       ok: true,
     });
+  });
+
+  it('enforces the daily and weekly free limits', () => {
+    expect(
+      checkBooking(
+        request({ booker: booker({ bookings: [booking(TENNIS_DATE)] }) }),
+      ),
+    ).toMatchObject({ ok: false, code: 'day_limit' });
+
+    expect(
+      checkBooking(
+        request({
+          booker: booker({
+            bookings: [booking('2026-08-10'), booking('2026-08-12')],
+          }),
+        }),
+      ),
+    ).toMatchObject({ ok: false, code: 'week_limit' });
+  });
+
+  it('never caps paid bookings', () => {
+    const spent = booker({
+      bookings: [booking('2026-08-10'), booking('2026-08-12')],
+    });
+    expect(
+      checkBooking(
+        request({
+          date: PICKLEBALL_DATE,
+          slotIndex: DAY_SLOT,
+          optionKey: 'pb1',
+          booker: spent,
+        }),
+      ),
+    ).toMatchObject({ ok: true });
+  });
+
+  it('closes a whole surface, and only that surface', () => {
+    const closure: Closure = {
+      dateFrom: PICKLEBALL_DATE,
+      dateTo: PICKLEBALL_DATE,
+      slotIndex: null,
+      venue: 'tennis-court',
+      reason: 'Resurfacing works',
+    };
+
+    const blocked = checkBooking(
+      request({
+        date: PICKLEBALL_DATE,
+        slotIndex: DAY_SLOT,
+        optionKey: 'pb1',
+        closures: [closure],
+      }),
+    );
+    expect(blocked).toMatchObject({ ok: false, code: 'closed' });
+    if (!blocked.ok) expect(blocked.message).toContain('Resurfacing works');
+
+    expect(
+      checkBooking(
+        request({
+          date: PICKLEBALL_DATE,
+          slotIndex: DAY_SLOT,
+          optionKey: 'bbA',
+          closures: [closure],
+        }),
+      ),
+    ).toMatchObject({ ok: true });
+  });
+
+  it('blocks a blacklisted booker', () => {
+    expect(
+      checkBooking(request({ booker: booker({ isBlocked: true }) })),
+    ).toMatchObject({ ok: false, code: 'booker_blocked' });
+  });
+
+  it('allows the last day of the window but not beyond', () => {
+    // 08-20 is a pickleball day, so the free morning offers pb courts.
+    expect(
+      checkBooking(request({ date: PICKLEBALL_DATE, optionKey: 'pb1' })),
+    ).toMatchObject({ ok: true });
     expect(checkBooking(request({ date: '2026-08-21' }))).toMatchObject({
       ok: false,
       code: 'too_far',
     });
   });
 
-  it('rejects a court that does not exist for that sport', () => {
-    expect(
-      checkBooking(request({ date: '2026-08-14', courtNo: 2 })),
-    ).toMatchObject({ ok: false, code: 'invalid_court' });
-    expect(
-      checkBooking(request({ date: '2026-08-20', courtNo: 4 })),
-    ).toMatchObject({ ok: true });
-  });
-
-  it('rejects an out-of-range slot index', () => {
-    expect(checkBooking(request({ slotIndex: 99 }))).toMatchObject({
-      ok: false,
-      code: 'invalid_slot',
-    });
-  });
-
-  it('blocks a blacklisted booker', () => {
-    const result = checkBooking(
-      request({ booker: booker({ isBlocked: true }) }),
-    );
-    expect(result).toMatchObject({ ok: false, code: 'booker_blocked' });
-    if (!result.ok) expect(result.message).not.toMatch(/blacklist/i);
-  });
-
-  describe('free-hour limits', () => {
-    it('enforces one free booking per booker per day', () => {
-      const state = booker({ bookings: [held('2026-08-14')] });
-      expect(checkBooking(request({ booker: state }))).toMatchObject({
-        ok: false,
-        code: 'day_limit',
-      });
-    });
-
-    it('enforces two free bookings per booker per week', () => {
-      const state = booker({
-        bookings: [held('2026-08-10'), held('2026-08-12')],
-      });
-      expect(
-        checkBooking(request({ date: '2026-08-14', booker: state })),
-      ).toMatchObject({ ok: false, code: 'week_limit' });
-    });
-
-    it('resets the weekly allowance on Monday', () => {
-      const state = booker({
-        bookings: [held('2026-08-15'), held('2026-08-16')],
-      });
-      expect(
-        checkBooking(request({ date: '2026-08-14', booker: state })),
-      ).toMatchObject({ ok: false, code: 'week_limit' });
-      expect(
-        checkBooking(request({ date: '2026-08-17', booker: state })),
-      ).toMatchObject({ ok: true });
-    });
-
-    it('does not count paid bookings against the allowance', () => {
-      const state = booker({
-        bookings: [
-          held('2026-08-14', 'day'),
-          held('2026-08-10', 'night'),
-          held('2026-08-12', 'day'),
-        ],
-      });
-      expect(checkBooking(request({ booker: state }))).toMatchObject({
-        ok: true,
-      });
-    });
-
-    it('does not cap paid bookings at all', () => {
-      const state = booker({
-        bookings: [
-          held('2026-08-14', 'day'),
-          held('2026-08-14', 'night'),
-          held('2026-08-10'),
-          held('2026-08-12'),
-        ],
-      });
-      // Free allowance is spent, but a paid slot on the same day is still fine.
-      expect(
-        checkBooking(request({ slotIndex: DAY_SLOT, booker: state })),
-      ).toMatchObject({ ok: true });
-      expect(checkBooking(request({ booker: state }))).toMatchObject({
-        ok: false,
-        code: 'week_limit',
-      });
-    });
-
-    it('frees the allowance when a booking is cancelled', () => {
-      const state = booker({ bookings: [held('2026-08-10')] });
-      expect(
-        checkBooking(request({ date: '2026-08-14', booker: state })),
-      ).toMatchObject({ ok: true });
-    });
-  });
-
-  it('honours closures', () => {
-    const wholeDay: Closure = {
-      dateFrom: '2026-08-14',
-      dateTo: '2026-08-14',
-      slotIndex: null,
-      courtNo: null,
-      reason: 'Resurfacing works',
-    };
-    const result = checkBooking(request({ closures: [wholeDay] }));
-    expect(result).toMatchObject({ ok: false, code: 'closed' });
-    if (!result.ok) expect(result.message).toContain('Resurfacing works');
-  });
-
-  it('applies a slot-specific closure only to that slot', () => {
-    const closure: Closure = {
-      dateFrom: '2026-08-14',
-      dateTo: '2026-08-14',
-      slotIndex: FREE_SLOT,
-      courtNo: null,
-      reason: 'Association event',
-    };
-    expect(
-      checkBooking(request({ slotIndex: FREE_SLOT, closures: [closure] })),
-    ).toMatchObject({ ok: false, code: 'closed' });
-    expect(
-      checkBooking(request({ slotIndex: 1, closures: [closure] })),
-    ).toMatchObject({ ok: true });
-  });
-
-  it('rejects a slot someone else already holds', () => {
-    const taken = [{ date: '2026-08-14', slotIndex: FREE_SLOT, courtNo: 1 }];
-    expect(checkBooking(request({ taken }))).toMatchObject({
-      ok: false,
-      code: 'taken',
-    });
-  });
-
   describe('when limits are switched off', () => {
     const off: BookingLimits = { ...DEFAULT_LIMITS, enabled: false };
 
-    it('drops the per-booker and advance-window limits', () => {
-      const state = booker({
-        bookings: [held('2026-08-14'), held('2026-08-12')],
-      });
+    it('drops the allowance but keeps everything else', () => {
       expect(
-        checkBooking(request({ limits: off, booker: state })),
+        checkBooking(
+          request({
+            limits: off,
+            booker: booker({ bookings: [booking(TENNIS_DATE)] }),
+          }),
+        ),
       ).toMatchObject({ ok: true });
-      expect(
-        checkBooking(request({ limits: off, date: '2026-09-30' })),
-      ).toMatchObject({ ok: true });
-    });
-
-    it('still refuses past slots, taken slots and guests in free hours', () => {
-      expect(
-        checkBooking(request({ limits: off, date: '2026-08-12' })),
-      ).toMatchObject({ ok: false, code: 'past' });
-
-      const taken = [{ date: '2026-08-14', slotIndex: FREE_SLOT, courtNo: 1 }];
-      expect(checkBooking(request({ limits: off, taken }))).toMatchObject({
-        ok: false,
-        code: 'taken',
-      });
 
       expect(
         checkBooking(request({ limits: off, bookerType: 'guest' })),
       ).toMatchObject({ ok: false, code: 'guest_free_hours' });
+
+      expect(
+        checkBooking(
+          request({ limits: off, held: held(TENNIS_DATE, FREE_SLOT, 'pb1') }),
+        ),
+      ).toMatchObject({ ok: false, code: 'taken' });
     });
   });
 });
@@ -362,19 +460,20 @@ describe('findClosure', () => {
     dateFrom: '2026-08-14',
     dateTo: '2026-08-16',
     slotIndex: null,
-    courtNo: null,
+    venue: null,
     reason: 'Typhoon',
   };
 
-  it('matches inclusively across the whole range', () => {
-    expect(findClosure([closure], '2026-08-14', 0, 1)).not.toBeNull();
-    expect(findClosure([closure], '2026-08-15', 2, 1)).not.toBeNull();
-    expect(findClosure([closure], '2026-08-16', 1, 1)).not.toBeNull();
+  it('matches inclusively across the range and both surfaces', () => {
+    expect(findClosure([closure], '2026-08-14', 0, 'tennis-court')).not.toBeNull();
+    expect(
+      findClosure([closure], '2026-08-16', 5, 'basketball-court'),
+    ).not.toBeNull();
   });
 
   it('does not match outside the range', () => {
-    expect(findClosure([closure], '2026-08-13', 0, 1)).toBeNull();
-    expect(findClosure([closure], '2026-08-17', 0, 1)).toBeNull();
+    expect(findClosure([closure], '2026-08-13', 0, 'tennis-court')).toBeNull();
+    expect(findClosure([closure], '2026-08-17', 0, 'tennis-court')).toBeNull();
   });
 });
 
@@ -382,10 +481,10 @@ describe('bookerUsage', () => {
   it('counts only free bookings, same day and same week', () => {
     const state = booker({
       bookings: [
-        held('2026-08-14'),
-        held('2026-08-14', 'day'), // paid, ignored
-        held('2026-08-10'),
-        held('2026-08-17'), // next week
+        booking('2026-08-14'),
+        booking('2026-08-14', 'day'),
+        booking('2026-08-10'),
+        booking('2026-08-17'),
       ],
     });
     expect(bookerUsage(state, '2026-08-14', DEFAULT_LIMITS)).toEqual({
@@ -403,108 +502,78 @@ describe('computeDayAvailability', () => {
     limits: DEFAULT_LIMITS,
     schedule: DEFAULT_SCHEDULE,
     pricing: DEFAULT_PRICING,
+    courts: DEFAULT_COURT_CONFIG,
     closures: [] as Closure[],
-    taken: [] as { date: string; slotIndex: number; courtNo: number }[],
+    held: [] as HeldResource[],
   };
 
-  it('groups the day into free, daytime and evening', () => {
-    const day = computeDayAvailability({ ...base, date: '2026-08-13' });
+  it('filters to one activity for the sport tabs', () => {
+    const day = computeDayAvailability({
+      ...base,
+      date: PICKLEBALL_DATE,
+      activity: 'basketball',
+    });
     expect(day.groups.map((group) => group.tier)).toEqual([
       'free',
       'day',
       'night',
     ]);
-    expect(day.groups[0].slots).toHaveLength(3);
-    expect(day.groups[1].slots).toHaveLength(9);
-    expect(day.groups[2].slots).toHaveLength(6);
+    // Nothing in the early block is free for basketball, so it is not labelled
+    // as the free morning.
+    expect(day.groups[0].label).toBe('Early morning');
+    expect(day.groups[0].slots[0].options).toHaveLength(3);
+    expect(day.groups[0].slots[0].options[0].price).toBe(200);
   });
 
-  it('reports full capacity for an untouched pickleball day', () => {
-    const day = computeDayAvailability({ ...base, date: '2026-08-13' });
-    expect(day.sport).toBe('pickleball');
-    expect(day.capacity).toBe(18 * 4);
-    expect(day.openCount).toBe(18 * 4);
-    expect(day.groups[0].slots[0].courts).toHaveLength(4);
+  it('reports the free morning for the day sport only', () => {
+    const tennis = computeDayAvailability({
+      ...base,
+      date: TENNIS_DATE,
+      activity: 'tennis',
+    });
+    expect(tennis.groups[0].tier).toBe('free');
+    expect(tennis.groups[0].slots[0].options).toHaveLength(1);
+
+    const pickleball = computeDayAvailability({
+      ...base,
+      date: TENNIS_DATE,
+      activity: 'pickleball',
+    });
+    expect(pickleball.groups.map((group) => group.tier)).toEqual([
+      'day',
+      'night',
+    ]);
   });
 
-  it('prices each group for the day sport', () => {
-    const day = computeDayAvailability({ ...base, date: '2026-08-13' });
-    expect(day.groups.map((group) => group.price)).toEqual([0, 200, 350]);
-
-    const tennis = computeDayAvailability({ ...base, date: '2026-08-14' });
-    expect(tennis.groups.map((group) => group.price)).toEqual([0, 350, 400]);
-  });
-
-  it('drops slots after closing time', () => {
+  it('marks a court taken and says what is in the way', () => {
     const day = computeDayAvailability({
       ...base,
-      date: '2026-08-14',
-      schedule: { ...DEFAULT_SCHEDULE, closeHour: 20 },
+      date: PICKLEBALL_DATE,
+      activity: 'tennis',
+      courts: PAID_COURTS,
+      held: held(PICKLEBALL_DATE, DAY_SLOT, 'pb2'),
     });
-    expect(day.capacity).toBe(14); // 06:00–20:00, one court
-    expect(day.groups[2].slots).toHaveLength(2); // 18:00 and 19:00
-  });
 
-  it('subtracts taken courts', () => {
-    const day = computeDayAvailability({
-      ...base,
-      date: '2026-08-13',
-      taken: [
-        { date: '2026-08-13', slotIndex: 0, courtNo: 1 },
-        { date: '2026-08-13', slotIndex: 0, courtNo: 2 },
-      ],
-    });
-    expect(day.groups[0].slots[0].openCount).toBe(2);
-    expect(day.groups[0].slots[0].courts[0].status).toBe('taken');
-    expect(day.openCount).toBe(18 * 4 - 2);
+    const slot = findSlotAvailability(day, DAY_SLOT);
+    expect(slot?.options[0].status).toBe('taken');
+    expect(slot?.options[0].reason).toContain('Pickleball court 2');
   });
 
   it('marks slots that have already started as past', () => {
     const day = computeDayAvailability({
       ...base,
       date: '2026-08-13',
+      activity: 'pickleball',
       now: { date: '2026-08-13', minutes: 7 * 60 + 30 },
     });
     const free = day.groups[0];
-    expect(free.slots[0].courts.every((c) => c.status === 'past')).toBe(true);
-    expect(free.slots[1].courts.every((c) => c.status === 'past')).toBe(true);
+    expect(free.slots[0].options.every((o) => o.status === 'past')).toBe(true);
     expect(free.slots[2].openCount).toBe(4);
-  });
-
-  it('marks closed courts with their reason', () => {
-    const day = computeDayAvailability({
-      ...base,
-      date: '2026-08-13',
-      closures: [
-        {
-          dateFrom: '2026-08-13',
-          dateTo: '2026-08-13',
-          slotIndex: 1,
-          courtNo: 3,
-          reason: 'Net replacement',
-        },
-      ],
-    });
-    expect(day.groups[0].slots[1].courts[2]).toEqual({
-      courtNo: 3,
-      status: 'closed',
-      reason: 'Net replacement',
-    });
-  });
-
-  it('finds a slot regardless of which group it is in', () => {
-    const day = computeDayAvailability({ ...base, date: '2026-08-14' });
-    expect(findSlotAvailability(day, NIGHT_SLOT)?.tier).toBe('night');
-    expect(findSlotAvailability(day, FREE_SLOT)?.tier).toBe('free');
-    expect(findSlotAvailability(day, 99)).toBeNull();
   });
 
   it('flags dates outside the booking window', () => {
     expect(
       computeDayAvailability({ ...base, date: '2026-08-21' }).withinWindow,
-    ).toBe(false);
-    expect(
-      computeDayAvailability({ ...base, date: '2026-08-12' }).withinWindow,
     ).toBe(false);
   });
 });

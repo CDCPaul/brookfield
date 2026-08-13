@@ -56,14 +56,14 @@ export function ClosureForm({ today }: { today: string }) {
         </select>
       </Field>
 
-      <Field label="Court" hint="Pickleball days only; tennis has one court.">
-        <select name="courtNo" defaultValue="all" className={inputClass}>
-          <option value="all">All courts</option>
-          {[1, 2, 3, 4].map((court) => (
-            <option key={court} value={court}>
-              Court {court}
-            </option>
-          ))}
+      <Field
+        label="Which surface"
+        hint="Closing the tennis court also closes the pickleball courts on it."
+      >
+        <select name="venue" defaultValue="all" className={inputClass}>
+          <option value="all">Both surfaces</option>
+          <option value="tennis-court">Tennis / pickleball court</option>
+          <option value="basketball-court">Basketball court</option>
         </select>
       </Field>
 

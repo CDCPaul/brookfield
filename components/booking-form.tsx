@@ -28,13 +28,13 @@ import {
 export function BookingForm({
   date,
   slotIndex,
-  courtNo,
+  optionKey,
   price,
   freeUntilHour,
 }: {
   date: string;
   slotIndex: number;
-  courtNo: number;
+  optionKey: string;
   price: number;
   freeUntilHour: number;
 }) {
@@ -57,7 +57,7 @@ export function BookingForm({
     <DetailsStep
       date={date}
       slotIndex={slotIndex}
-      courtNo={courtNo}
+      optionKey={optionKey}
       bookerType={bookerType}
       onBack={() => setBookerType(null)}
     />
@@ -150,13 +150,13 @@ function BookerTypeStep({
 function DetailsStep({
   date,
   slotIndex,
-  courtNo,
+  optionKey,
   bookerType,
   onBack,
 }: {
   date: string;
   slotIndex: number;
-  courtNo: number;
+  optionKey: string;
   bookerType: BookerType;
   onBack: () => void;
 }) {
@@ -205,7 +205,7 @@ function DetailsStep({
     >
       <input type="hidden" name="date" value={date} />
       <input type="hidden" name="slot" value={slotIndex} />
-      <input type="hidden" name="court" value={courtNo} />
+      <input type="hidden" name="option" value={optionKey} />
       <input type="hidden" name="bookerType" value={bookerType} />
 
       <div className="flex items-center justify-between rounded-xl border border-edge bg-surface px-3.5 py-2.5">

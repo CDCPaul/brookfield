@@ -128,16 +128,17 @@ export function optionsFor(
   tier: Tier,
   config: CourtConfig,
 ): CourtOption[] {
-  if (tier === 'free') {
-    return COURT_OPTIONS.filter((option) =>
-      isTennisDay(date)
-        ? option.key === 'tennis'
-        : option.venue === 'tennis-court' && option.activity === 'pickleball',
-    );
-  }
-
   return COURT_OPTIONS.filter((option) => {
+    // The basketball court opens with everything else but is never free, so it
+    // is on offer during the free morning at the daytime rate.
     if (option.venue === 'basketball-court') return config.basketballEnabled;
+
+    if (tier === 'free') {
+      return isTennisDay(date)
+        ? option.activity === 'tennis'
+        : option.activity === 'pickleball';
+    }
+
     if (option.activity === 'tennis') return config.paidTennisEnabled;
     return true;
   });
@@ -147,19 +148,31 @@ export function optionsFor(
  * Pesos for one hour of this option.
  *
  * A basketball half court costs the same as a pickleball court, so the full
- * court — being two halves — costs twice that.
+ * court — being two halves — costs twice that. The free morning only makes the
+ * tennis court free; basketball there is charged at the daytime rate.
  */
 export function priceForOption(
   option: CourtOption,
   tier: Tier,
   pricing: Pricing,
 ): number {
+  if (option.venue === 'basketball-court') {
+    const rates = pricing[tier === 'free' ? 'day' : tier];
+    return rates.pickleball * option.resources.length;
+  }
+
   if (tier === 'free') return 0;
   const rates = pricing[tier];
+  return option.activity === 'tennis' ? rates.tennis : rates.pickleball;
+}
 
-  if (option.activity === 'tennis') return rates.tennis;
-  if (option.activity === 'pickleball') return rates.pickleball;
-  return rates.pickleball * option.resources.length;
+/** True when this option costs nothing — the resident-only free morning. */
+export function isFreeOption(
+  option: CourtOption,
+  tier: Tier,
+  pricing: Pricing,
+): boolean {
+  return priceForOption(option, tier, pricing) === 0;
 }
 
 /** True when the two options cannot both be held at the same time. */

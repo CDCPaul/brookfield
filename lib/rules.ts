@@ -3,26 +3,29 @@
  *
  * Everything the server needs to accept or reject a booking lives here, with no
  * database access, so the rules can be tested exhaustively. The database still
- * has the final say on double-booking via a partial unique index; this module
- * decides everything else, works out what the slot costs, and produces the
- * message the resident sees.
+ * has the final say on double-booking, through a unique index on the physical
+ * resources a booking occupies; this module decides everything else, works out
+ * what the slot costs, and produces the message the booker sees.
  */
 
+import {
+  type CourtConfig,
+  type CourtOption,
+  type ResourceKey,
+  type Venue,
+  findOption,
+  optionsFor,
+  priceForOption,
+} from './courts';
 import type { BookerType } from './owner';
 import {
   type Pricing,
   type ScheduleConfig,
   type Slot,
-  type Sport,
   type Tier,
-  courtNumbers,
-  dailyCapacity,
   getSlot,
-  isValidCourtNo,
   isValidSlotIndex,
   openSlots,
-  priceFor,
-  sportForDate,
   tierForSlot,
   tierLabel,
   tierRangeLabel,
@@ -58,33 +61,31 @@ export type Closure = {
   dateTo: DateStr;
   /** null closes every slot that day. */
   slotIndex: number | null;
-  /** null closes every court. */
-  courtNo: number | null;
+  /** null closes both surfaces. */
+  venue: Venue | null;
   reason: string;
 };
 
-/** An active booking, reduced to what the rules need. */
-export type ActiveBooking = {
+/** One resource held for one slot, by anyone. */
+export type HeldResource = {
   date: DateStr;
   slotIndex: number;
-  courtNo: number;
+  resourceKey: ResourceKey;
+  /** Which option holds it, so the UI can say why something is blocked. */
+  optionKey: string;
 };
 
-/**
- * The person or household making the booking — a resident unit or a guest
- * identified by phone.
- */
 export type BookerState = {
   isBlocked: boolean;
   /** Active bookings they hold. Only free ones count against the limits. */
-  bookings: { date: DateStr; tier: Tier }[];
+  bookings: { date: DateStr; isFree: boolean }[];
 };
 
 export const EMPTY_BOOKER: BookerState = { isBlocked: false, bookings: [] };
 
 export type RejectionCode =
   | 'invalid_slot'
-  | 'invalid_court'
+  | 'invalid_option'
   | 'closed_hours'
   | 'guest_free_hours'
   | 'past'
@@ -96,19 +97,18 @@ export type RejectionCode =
   | 'taken';
 
 export type BookingCheck =
-  | { ok: true; tier: Tier; price: number }
+  | { ok: true; tier: Tier; price: number; option: CourtOption }
   | { ok: false; code: RejectionCode; message: string };
 
 function reject(code: RejectionCode, message: string): BookingCheck {
   return { ok: false, code, message };
 }
 
-/** Returns the closure covering this exact court-slot, or null. */
 export function findClosure(
   closures: readonly Closure[],
   date: DateStr,
   slotIndex: number,
-  courtNo: number,
+  venue: Venue,
 ): Closure | null {
   for (const closure of closures) {
     const withinRange =
@@ -116,7 +116,7 @@ export function findClosure(
       daysBetween(date, closure.dateTo) >= 0;
     if (!withinRange) continue;
     if (closure.slotIndex !== null && closure.slotIndex !== slotIndex) continue;
-    if (closure.courtNo !== null && closure.courtNo !== courtNo) continue;
+    if (closure.venue !== null && closure.venue !== venue) continue;
     return closure;
   }
   return null;
@@ -154,7 +154,7 @@ export function bookerUsage(
   let dayUsed = 0;
   let weekUsed = 0;
   for (const booking of booker.bookings) {
-    if (booking.tier !== 'free') continue;
+    if (!booking.isFree) continue;
     if (booking.date === date) dayUsed += 1;
     if (isSameWeek(booking.date, date)) weekUsed += 1;
   }
@@ -169,15 +169,16 @@ export function bookerUsage(
 export type BookingRequest = {
   date: DateStr;
   slotIndex: number;
-  courtNo: number;
+  optionKey: string;
   bookerType: BookerType;
   now: ManilaMoment;
   limits: BookingLimits;
   schedule: ScheduleConfig;
   pricing: Pricing;
+  courts: CourtConfig;
   closures: readonly Closure[];
-  /** Active bookings already held on `date`, by anyone. */
-  taken: readonly ActiveBooking[];
+  /** Resources already held on `date`, by anyone. */
+  held: readonly HeldResource[];
   booker: BookerState;
 };
 
@@ -185,14 +186,15 @@ export function checkBooking(request: BookingRequest): BookingCheck {
   const {
     date,
     slotIndex,
-    courtNo,
+    optionKey,
     bookerType,
     now,
     limits,
     schedule,
     pricing,
+    courts,
     closures,
-    taken,
+    held,
     booker,
   } = request;
 
@@ -200,27 +202,36 @@ export function checkBooking(request: BookingRequest): BookingCheck {
     return reject('invalid_slot', 'That time slot does not exist.');
   }
 
-  const sport = sportForDate(date);
-  if (!isValidCourtNo(sport, courtNo)) {
-    return reject('invalid_court', 'That court is not available on this day.');
-  }
-
   const tier = tierForSlot(slotIndex, schedule);
   if (tier === null) {
     return reject('closed_hours', 'The courts are closed at that hour.');
   }
 
-  // The free morning is a resident benefit; guests pay for court time.
-  if (tier === 'free' && bookerType === 'guest') {
+  const option = findOption(optionKey);
+  if (!option) {
+    return reject('invalid_option', 'That court does not exist.');
+  }
+
+  const offered = optionsFor(date, tier, courts);
+  if (!offered.some((entry) => entry.key === option.key)) {
+    return reject('invalid_option', 'That court is not available at that time.');
+  }
+
+  const price = priceForOption(option, tier, pricing);
+
+  // The benefit residents get is the free court time, so that — and only that
+  // — is what guests cannot take. Paid hours are open to everyone, including
+  // the basketball court during the free morning.
+  if (price === 0 && bookerType === 'guest') {
     return reject(
       'guest_free_hours',
-      'The free morning hours are for Brookfield residents. Guests can book from ' +
-        `${formatHour(schedule.freeUntilHour)} onwards.`,
+      'The free morning hours are for Brookfield residents. Guests can book ' +
+        `paid hours from ${formatHour(schedule.freeUntilHour)}, or the ` +
+        'basketball court at any time.',
     );
   }
 
   const slot = getSlot(slotIndex);
-
   if (isPastSlot(date, slot, now)) {
     return reject('past', 'That time has already started.');
   }
@@ -240,13 +251,13 @@ export function checkBooking(request: BookingRequest): BookingCheck {
     );
   }
 
-  const closure = findClosure(closures, date, slotIndex, courtNo);
+  const closure = findClosure(closures, date, slotIndex, option.venue);
   if (closure) {
     return reject('closed', `Court closed — ${closure.reason}.`);
   }
 
-  // Limits guard the free morning only.
-  if (limits.enabled && tier === 'free') {
+  // Limits guard free court time only — never anything paid for.
+  if (limits.enabled && price === 0) {
     const usage = bookerUsage(booker, date, limits);
     if (usage.dayUsed >= usage.dayMax) {
       return reject(
@@ -262,17 +273,33 @@ export function checkBooking(request: BookingRequest): BookingCheck {
     }
   }
 
-  const isTaken = taken.some(
-    (booking) =>
-      booking.date === date &&
-      booking.slotIndex === slotIndex &&
-      booking.courtNo === courtNo,
-  );
-  if (isTaken) {
-    return reject('taken', 'Someone just booked this slot. Please pick another.');
+  const blocker = findBlocker(held, date, slotIndex, option);
+  if (blocker) {
+    return reject('taken', `${describeBlocker(blocker)} Please pick another.`);
   }
 
-  return { ok: true, tier, price: priceFor(tier, sport, pricing) };
+  return { ok: true, tier, price, option };
+}
+
+/** The first held resource that overlaps this option, if any. */
+export function findBlocker(
+  held: readonly HeldResource[],
+  date: DateStr,
+  slotIndex: number,
+  option: CourtOption,
+): HeldResource | null {
+  for (const entry of held) {
+    if (entry.date !== date || entry.slotIndex !== slotIndex) continue;
+    if (option.resources.includes(entry.resourceKey)) return entry;
+  }
+  return null;
+}
+
+/** Plain-language reason a court is unavailable, naming what is in the way. */
+export function describeBlocker(blocker: HeldResource): string {
+  const holder = findOption(blocker.optionKey);
+  if (!holder) return 'This court is already booked.';
+  return `${holder.label} is booked this hour.`;
 }
 
 function formatHour(hour: number): string {
@@ -281,12 +308,13 @@ function formatHour(hour: number): string {
   return `${hour12}:00 ${suffix}`;
 }
 
-export type CourtStatus = 'open' | 'taken' | 'closed' | 'past';
+export type OptionStatus = 'open' | 'taken' | 'closed' | 'past';
 
-export type CourtAvailability = {
-  courtNo: number;
-  status: CourtStatus;
-  /** Present when status is 'closed'. */
+export type OptionAvailability = {
+  option: CourtOption;
+  status: OptionStatus;
+  price: number;
+  /** Why it is unavailable, when it is. */
   reason?: string;
 };
 
@@ -295,8 +323,7 @@ export type SlotAvailability = {
   label: string;
   startMinutes: number;
   tier: Tier;
-  price: number;
-  courts: CourtAvailability[];
+  options: OptionAvailability[];
   openCount: number;
 };
 
@@ -304,8 +331,6 @@ export type TierGroup = {
   tier: Tier;
   label: string;
   rangeLabel: string;
-  /** Price for this day's sport; 0 for the free morning. */
-  price: number;
   slots: SlotAvailability[];
   openCount: number;
   capacity: number;
@@ -313,11 +338,9 @@ export type TierGroup = {
 
 export type DayAvailability = {
   date: DateStr;
-  sport: Sport;
   groups: TierGroup[];
   openCount: number;
   capacity: number;
-  /** False when the date is outside the booking window entirely. */
   withinWindow: boolean;
 };
 
@@ -327,8 +350,11 @@ export type AvailabilityRequest = {
   limits: BookingLimits;
   schedule: ScheduleConfig;
   pricing: Pricing;
+  courts: CourtConfig;
   closures: readonly Closure[];
-  taken: readonly ActiveBooking[];
+  held: readonly HeldResource[];
+  /** Restrict to one activity, for the sport tabs. */
+  activity?: CourtOption['activity'];
 };
 
 const TIER_ORDER: Tier[] = ['free', 'day', 'night'];
@@ -336,75 +362,94 @@ const TIER_ORDER: Tier[] = ['free', 'day', 'night'];
 export function computeDayAvailability(
   request: AvailabilityRequest,
 ): DayAvailability {
-  const { date, now, limits, schedule, pricing, closures, taken } = request;
-  const sport = sportForDate(date);
-  const courts = courtNumbers(sport);
+  const {
+    date,
+    now,
+    limits,
+    schedule,
+    pricing,
+    courts,
+    closures,
+    held,
+    activity,
+  } = request;
 
-  const takenKeys = new Set(
-    taken
-      .filter((booking) => booking.date === date)
-      .map((booking) => `${booking.slotIndex}:${booking.courtNo}`),
-  );
+  const slots: SlotAvailability[] = [];
 
-  const bySlot = new Map<number, SlotAvailability>();
   for (const slot of openSlots(schedule)) {
     const tier = tierForSlot(slot.index, schedule)!;
     const past = isPastSlot(date, slot, now);
 
-    const courtStates = courts.map<CourtAvailability>((courtNo) => {
-      if (past) return { courtNo, status: 'past' };
-      const closure = findClosure(closures, date, slot.index, courtNo);
+    const offered = optionsFor(date, tier, courts).filter(
+      (option) => !activity || option.activity === activity,
+    );
+    if (offered.length === 0) continue;
+
+    const options = offered.map<OptionAvailability>((option) => {
+      const price = priceForOption(option, tier, pricing);
+      if (past) return { option, status: 'past', price };
+
+      const closure = findClosure(closures, date, slot.index, option.venue);
       if (closure) {
-        return { courtNo, status: 'closed', reason: closure.reason };
+        return { option, status: 'closed', price, reason: closure.reason };
       }
-      if (takenKeys.has(`${slot.index}:${courtNo}`)) {
-        return { courtNo, status: 'taken' };
+
+      const blocker = findBlocker(held, date, slot.index, option);
+      if (blocker) {
+        return {
+          option,
+          status: 'taken',
+          price,
+          reason: describeBlocker(blocker),
+        };
       }
-      return { courtNo, status: 'open' };
+
+      return { option, status: 'open', price };
     });
 
-    bySlot.set(slot.index, {
+    slots.push({
       slotIndex: slot.index,
       label: slot.label,
       startMinutes: slot.startMinutes,
       tier,
-      price: priceFor(tier, sport, pricing),
-      courts: courtStates,
-      openCount: courtStates.filter((court) => court.status === 'open').length,
+      options,
+      openCount: options.filter((entry) => entry.status === 'open').length,
     });
   }
 
   const groups: TierGroup[] = [];
   for (const tier of TIER_ORDER) {
-    const slots = [...bySlot.values()].filter((slot) => slot.tier === tier);
-    if (slots.length === 0) continue;
+    const inTier = slots.filter((slot) => slot.tier === tier);
+    if (inTier.length === 0) continue;
+
+    // 'Free morning' is only honest when something in the block is free —
+    // basketball is charged in those hours.
+    const anyFree = inTier.some((slot) =>
+      slot.options.some((option) => option.price === 0),
+    );
 
     groups.push({
       tier,
-      label: tierLabel(tier),
+      label: tier === 'free' && !anyFree ? 'Early morning' : tierLabel(tier),
       rangeLabel: tierRangeLabel(tier, schedule),
-      price: priceFor(tier, sport, pricing),
-      slots,
-      openCount: slots.reduce((total, slot) => total + slot.openCount, 0),
-      capacity: slots.length * courts.length,
+      slots: inTier,
+      openCount: inTier.reduce((total, slot) => total + slot.openCount, 0),
+      capacity: inTier.reduce((total, slot) => total + slot.options.length, 0),
     });
   }
 
   const daysAhead = daysBetween(now.date, date);
-  const withinWindow =
-    daysAhead >= 0 && (!limits.enabled || daysAhead <= limits.advanceDays);
 
   return {
     date,
-    sport,
     groups,
     openCount: groups.reduce((total, group) => total + group.openCount, 0),
-    capacity: dailyCapacity(date, schedule),
-    withinWindow,
+    capacity: groups.reduce((total, group) => total + group.capacity, 0),
+    withinWindow:
+      daysAhead >= 0 && (!limits.enabled || daysAhead <= limits.advanceDays),
   };
 }
 
-/** Finds one slot in a computed day, regardless of tier. */
 export function findSlotAvailability(
   day: DayAvailability,
   slotIndex: number,

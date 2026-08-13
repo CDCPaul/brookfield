@@ -11,7 +11,7 @@ import {
 } from 'drizzle-orm';
 
 import { generateBookingCode } from '@/lib/booking-code';
-import { bookings, db, units, type Booking } from '@/lib/db';
+import { bookingResources, bookings, db, units, type Booking } from '@/lib/db';
 import {
   type BookerType,
   type Owner,
@@ -19,12 +19,12 @@ import {
   unitOwner,
 } from '@/lib/owner';
 import {
-  type ActiveBooking,
   type BookerState,
+  type HeldResource,
   type RejectionCode,
   checkBooking,
 } from '@/lib/rules';
-import { isValidCourtNo, isValidSlotIndex, sportForDate } from '@/lib/schedule';
+import { isValidSlotIndex, sportForDate } from '@/lib/schedule';
 import {
   addDays,
   isValidDateStr,
@@ -52,24 +52,31 @@ const OCCUPYING = notInArray(bookings.status, ['cancelled', 'rejected']);
 /** Statuses a booker still owns and can act on. */
 const LIVE = inArray(bookings.status, ['pending', 'confirmed']);
 
-export async function getActiveBookings(
+/**
+ * Every piece of court held over the range, with the option holding it so the
+ * screens can say what is in the way.
+ */
+export async function getHeldResources(
   from: DateStr,
   to: DateStr,
-): Promise<ActiveBooking[]> {
-  return db
+): Promise<HeldResource[]> {
+  const rows = await db
     .select({
-      date: bookings.bookingDate,
-      slotIndex: bookings.slotIndex,
-      courtNo: bookings.courtNo,
+      date: bookingResources.bookingDate,
+      slotIndex: bookingResources.slotIndex,
+      resourceKey: bookingResources.resourceKey,
+      optionKey: bookings.courtOption,
     })
-    .from(bookings)
+    .from(bookingResources)
+    .innerJoin(bookings, eq(bookingResources.bookingId, bookings.id))
     .where(
       and(
-        OCCUPYING,
-        gte(bookings.bookingDate, from),
-        lte(bookings.bookingDate, to),
+        gte(bookingResources.bookingDate, from),
+        lte(bookingResources.bookingDate, to),
       ),
     );
+
+  return rows as HeldResource[];
 }
 
 /**
@@ -89,17 +96,21 @@ export async function getBookerState(
     gte(bookings.bookingDate, weekStart(today)),
     lte(bookings.bookingDate, addDays(today, advanceDays)),
   );
+  // Free court time is what the allowance rations, and 'free' is the amount
+  // charged rather than the hour of day — basketball costs money all morning.
   const columns = {
     date: bookings.bookingDate,
-    tier: bookings.tier,
+    amount: bookings.amount,
   };
+  const toState = (rows: { date: string; amount: number }[]) =>
+    rows.map((row) => ({ date: row.date, isFree: row.amount === 0 }));
 
   if (owner.kind === 'phone') {
     const rows = await db
       .select(columns)
       .from(bookings)
       .where(and(eq(bookings.phone, owner.key), withinWindow));
-    return { isBlocked: false, bookings: rows as BookerState['bookings'] };
+    return { isBlocked: false, bookings: toState(rows) };
   }
 
   const unit = await findUnitByKey(owner.key);
@@ -110,16 +121,13 @@ export async function getBookerState(
     .from(bookings)
     .where(and(eq(bookings.unitId, unit.id), withinWindow));
 
-  return {
-    isBlocked: unit.isBlocked,
-    bookings: rows as BookerState['bookings'],
-  };
+  return { isBlocked: unit.isBlocked, bookings: toState(rows) };
 }
 
 export type CreateBookingInput = {
   date: DateStr;
   slotIndex: number;
-  courtNo: number;
+  optionKey: string;
   name: string;
   phone: string;
   bookerType: BookerType;
@@ -181,33 +189,30 @@ export async function createBooking(
   }
 
   const sport = sportForDate(input.date);
-  if (!isValidCourtNo(sport, input.courtNo)) {
-    return invalid('Please choose a court.');
-  }
-
   const moment = manilaNow(now);
-  const { limits, schedule, pricing } = await getSettings();
+  const { limits, schedule, pricing, courts } = await getSettings();
   const owner: Owner = isResident
     ? unitOwner(unitInput)
     : phoneOwner(input.phone);
 
-  const [closures, taken, bookerState] = await Promise.all([
+  const [closures, held, bookerState] = await Promise.all([
     getClosures(input.date, input.date),
-    getActiveBookings(input.date, input.date),
+    getHeldResources(input.date, input.date),
     getBookerState(owner, moment.date, limits.advanceDays),
   ]);
 
   const verdict = checkBooking({
     date: input.date,
     slotIndex: input.slotIndex,
-    courtNo: input.courtNo,
+    optionKey: input.optionKey,
     bookerType: input.bookerType,
     now: moment,
     limits,
     schedule,
     pricing,
+    courts,
     closures,
-    taken,
+    held,
     booker: bookerState,
   });
 
@@ -216,10 +221,10 @@ export async function createBooking(
   }
 
   const unit = isResident ? await findOrCreateUnit(unitInput) : null;
+  const option = verdict.option;
 
-  // The partial unique index is the real guard against a race between two
-  // people tapping the same court at the same moment.
   for (let attempt = 0; attempt < 5; attempt += 1) {
+    let created: Booking;
     try {
       const [row] = await db
         .insert(bookings)
@@ -228,7 +233,8 @@ export async function createBooking(
           bookingDate: input.date,
           slotIndex: input.slotIndex,
           sport,
-          courtNo: input.courtNo,
+          courtOption: option.key,
+          courtNo: legacyCourtNo(option.key),
           bookerType: input.bookerType,
           tier: verdict.tier,
           amount: verdict.price,
@@ -239,23 +245,55 @@ export async function createBooking(
           status: 'pending',
         })
         .returning();
-      return { ok: true, booking: row };
+      created = row;
     } catch (error) {
-      if (isUniqueViolation(error, 'bookings_active_slot_idx')) {
+      // Astronomically unlikely; retry with a fresh code.
+      if (isUniqueViolation(error, 'bookings_code_idx')) continue;
+      throw error;
+    }
+
+    // Claiming the physical resources is what actually holds the slot, and the
+    // unique index on them is the real guard against two people tapping the
+    // same court at the same moment.
+    try {
+      await db.insert(bookingResources).values(
+        option.resources.map((resourceKey) => ({
+          bookingId: created.id,
+          bookingDate: input.date,
+          slotIndex: input.slotIndex,
+          resourceKey,
+        })),
+      );
+      return { ok: true, booking: created };
+    } catch (error) {
+      await db.delete(bookings).where(eq(bookings.id, created.id));
+      if (isUniqueViolation(error, 'booking_resources_slot_idx')) {
         return {
           ok: false,
           code: 'taken',
-          message: 'Someone just booked this slot. Please pick another.',
+          message: 'Someone just booked this court. Please pick another.',
         };
-      }
-      if (isUniqueViolation(error, 'bookings_code_idx')) {
-        continue; // Astronomically unlikely; retry with a fresh code.
       }
       throw error;
     }
   }
 
   return invalid('Could not create the booking. Please try again.');
+}
+
+/** Display-only number kept for the CSV export and older rows. */
+function legacyCourtNo(optionKey: string): number {
+  const match = /^pb(\d)$/.exec(optionKey);
+  if (match) return Number(match[1]);
+  if (optionKey === 'bbB') return 2;
+  return 1;
+}
+
+/** Releasing the resources is what gives the slot back to everyone else. */
+async function releaseResources(bookingId: number): Promise<void> {
+  await db
+    .delete(bookingResources)
+    .where(eq(bookingResources.bookingId, bookingId));
 }
 
 /** A booking with its household attached — null on all four for guests. */
@@ -272,6 +310,7 @@ const bookingWithUnitColumns = {
   bookingDate: bookings.bookingDate,
   slotIndex: bookings.slotIndex,
   sport: bookings.sport,
+  courtOption: bookings.courtOption,
   courtNo: bookings.courtNo,
   bookerType: bookings.bookerType,
   tier: bookings.tier,
@@ -394,6 +433,7 @@ export async function cancelBookingAsOwner(
       cancelledBy: 'resident',
     })
     .where(and(eq(bookings.id, bookingId), LIVE));
+  await releaseResources(bookingId);
 
   return { ok: true };
 }
@@ -536,6 +576,7 @@ export async function rejectBooking(
   if (updated.length === 0) {
     return { ok: false, message: 'This request is no longer pending.' };
   }
+  await releaseResources(bookingId);
   return { ok: true };
 }
 
@@ -572,9 +613,11 @@ export async function cancelBookingAsAdmin(
   if (updated.length === 0) {
     return { ok: false, message: 'Booking is no longer active.' };
   }
+  await releaseResources(bookingId);
   return { ok: true };
 }
 
+// A no-show keeps its resources: the hour was used up either way.
 export async function markNoShow(bookingId: number): Promise<MutationResult> {
   const updated = await db
     .update(bookings)

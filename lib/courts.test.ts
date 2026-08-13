@@ -94,25 +94,32 @@ describe('isTennisDay', () => {
 });
 
 describe('optionsFor', () => {
-  it('offers only the tennis court in the free morning', () => {
-    expect(
-      optionsFor(TENNIS_DATE, 'free', DEFAULT_COURT_CONFIG).map((o) => o.key),
-    ).toEqual(['tennis']);
-    expect(
-      optionsFor(PICKLEBALL_DATE, 'free', DEFAULT_COURT_CONFIG).map(
-        (o) => o.key,
-      ),
-    ).toEqual(['pb1', 'pb2', 'pb3', 'pb4']);
+  it('follows the day rotation on the tennis court in the free morning', () => {
+    const onTennisCourt = (date: string) =>
+      optionsFor(date, 'free', DEFAULT_COURT_CONFIG)
+        .filter((o) => o.venue === 'tennis-court')
+        .map((o) => o.key);
+
+    expect(onTennisCourt(TENNIS_DATE)).toEqual(['tennis']);
+    expect(onTennisCourt(PICKLEBALL_DATE)).toEqual([
+      'pb1',
+      'pb2',
+      'pb3',
+      'pb4',
+    ]);
   });
 
-  it('never offers basketball for free', () => {
+  it('opens the basketball court in the morning, but charges for it', () => {
     for (const date of [TENNIS_DATE, PICKLEBALL_DATE]) {
       const keys = optionsFor(date, 'free', DEFAULT_COURT_CONFIG).map(
         (o) => o.key,
       );
-      expect(keys).not.toContain('bbA');
-      expect(keys).not.toContain('bbFull');
+      expect(keys).toContain('bbA');
+      expect(keys).toContain('bbFull');
     }
+
+    expect(priceForOption(option('bbA'), 'free', DEFAULT_PRICING)).toBe(200);
+    expect(priceForOption(option('bbFull'), 'free', DEFAULT_PRICING)).toBe(400);
   });
 
   it('offers pickleball and basketball in paid hours, every day', () => {
@@ -147,7 +154,7 @@ describe('optionsFor', () => {
 });
 
 describe('priceForOption', () => {
-  it('charges nothing in the free morning', () => {
+  it('charges nothing for the tennis court in the free morning', () => {
     expect(priceForOption(option('tennis'), 'free', DEFAULT_PRICING)).toBe(0);
     expect(priceForOption(option('pb1'), 'free', DEFAULT_PRICING)).toBe(0);
   });

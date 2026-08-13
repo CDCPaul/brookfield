@@ -1,4 +1,4 @@
-import { GuestBadge, bookerLabel } from '@/components/booker-label';
+import { GuestBadge, bookerLabel, courtLabel } from '@/components/booker-label';
 import { PaymentBadge } from '@/components/booking-status';
 import { RequestActions } from '@/components/admin/request-actions';
 import { Notice, SectionTitle } from '@/components/ui';
@@ -71,10 +71,7 @@ export default async function RequestsPage() {
                       </p>
                       <p className="text-xs text-muted">{slot.label}</p>
                       <p className="text-xs text-muted">
-                        {booking.sport === 'tennis'
-                          ? 'Tennis'
-                          : `Court ${booking.courtNo}`}{' '}
-                        · {tierLabel(booking.tier as Tier)}
+                        {courtLabel(booking)} · {tierLabel(booking.tier as Tier)}
                       </p>
                     </div>
                   </div>

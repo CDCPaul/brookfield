@@ -13,7 +13,12 @@ function describe(closure: Closure): string {
       ? 'all morning'
       : SLOTS[closure.slotIndex].label;
 
-  const where = closure.courtNo === null ? '' : `, court ${closure.courtNo}`;
+  const where =
+    closure.venue === null
+      ? ''
+      : closure.venue === 'tennis-court'
+        ? ', tennis court'
+        : ', basketball court';
 
   return `${range}, ${when}${where}`;
 }

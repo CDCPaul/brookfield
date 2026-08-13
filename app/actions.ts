@@ -40,7 +40,7 @@ export async function createBookingAction(
   const result = await createBooking({
     date: text(formData, 'date'),
     slotIndex: Number(formData.get('slot')),
-    courtNo: Number(formData.get('court')),
+    optionKey: text(formData, 'option'),
     bookerType,
     phase: text(formData, 'phase'),
     block: text(formData, 'block'),

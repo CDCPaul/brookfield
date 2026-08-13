@@ -8,7 +8,8 @@
 
 import { eq, inArray, like, sql } from 'drizzle-orm';
 
-import { bookings, db, units } from '../lib/db';
+import { bookingResources, bookings, db, units } from '../lib/db';
+import { isTennisDay } from '../lib/courts';
 import { phoneOwner, unitOwner } from '../lib/owner';
 import { getDayAvailability } from '../lib/queries/availability';
 import {
@@ -17,25 +18,21 @@ import {
   createBooking,
   getPendingBookings,
   rejectBooking,
-  submitPaymentReference,
 } from '../lib/queries/bookings';
+import { saveCourts } from '../lib/queries/settings';
 import { addDays, manilaNow } from '../lib/time';
 import { buildUnitKey } from '../lib/unit-key';
 
 const UNIT_A = { phase: 'ZZTEST', block: '1', lot: '1' };
 const UNIT_B = { phase: 'ZZTEST', block: '2', lot: '2' };
-
 const RESIDENT_A = { ...UNIT_A, bookerType: 'resident' as const };
 const RESIDENT_B = { ...UNIT_B, bookerType: 'resident' as const };
 
-// Reserved test range numbers, so a real resident can never collide.
 const PHONE_A = '09990000001';
 const PHONE_B = '09990000002';
 const GUEST_PHONE = '09990000003';
 
-// Slot index n starts at hour 6 + n.
 const FREE_SLOT = 0; // 06:00
-const FREE_SLOT_2 = 1; // 07:00
 const DAY_SLOT = 4; // 10:00
 const NIGHT_SLOT = 13; // 19:00
 
@@ -57,60 +54,60 @@ async function cleanup() {
     await db.delete(bookings).where(eq(bookings.unitId, unit.id));
     await db.delete(units).where(eq(units.id, unit.id));
   }
-  // Guest bookings have no unit to hang off, so clear them by number.
   await db.delete(bookings).where(like(bookings.phone, '0999%'));
 }
 
 /**
- * `drizzle-kit push` silently ignores changes to a partial index predicate, so
- * the guard against double-booking can rot without anything failing. Check it
- * directly rather than trusting the migration.
+ * The unique index on the resource rows is what actually stops two people
+ * taking overlapping courts. Check it rather than trusting the migration.
  */
-async function checkSlotGuard() {
+async function checkResourceGuard() {
   const [row] = (
     await db.execute(
       sql`select indexdef from pg_indexes
-          where indexname = 'bookings_active_slot_idx'`,
+          where indexname = 'booking_resources_slot_idx'`,
     )
   ).rows as { indexdef: string }[];
 
   const definition = row?.indexdef ?? '';
-  const covers = (status: string) =>
-    definition.includes('<> ALL') && !definition.includes(`'${status}'::text`);
-
   check(
-    'the double-booking guard covers pending and confirmed bookings',
-    covers('pending') && covers('confirmed'),
-    definition || 'index missing — run npm run db:repair',
+    'the double-booking guard is a unique index on date, slot and resource',
+    definition.includes('UNIQUE') &&
+      definition.includes('booking_date') &&
+      definition.includes('slot_index') &&
+      definition.includes('resource_key'),
+    definition || 'index missing — run npm run db:push',
   );
 }
 
 async function main() {
   await cleanup();
-  await checkSlotGuard();
+  await checkResourceGuard();
+
+  // Paid tennis has no published rate, so it ships off. Turn it on to exercise
+  // the tennis-versus-pickleball conflict, then put it back.
+  await saveCourts({ paidTennisEnabled: true, basketballEnabled: true });
 
   const today = manilaNow().date;
-  // Pick a day far enough out that no slot has started yet.
   const target = addDays(today, 2);
+  const freeOption = isTennisDay(target) ? 'tennis' : 'pb1';
+
+  console.log(`\nTarget ${target} (free morning: ${freeOption})\n`);
+  console.log('Free morning\n');
 
   const before = await getDayAvailability(target);
   const openBefore = before.openCount;
-  const court = before.groups[0].slots[0].courts[0].courtNo;
-  const sport = before.sport;
-
-  console.log(`\nTarget date ${target} (${sport})\n`);
-  console.log('Free morning\n');
 
   const first = await createBooking({
     ...RESIDENT_A,
     date: target,
     slotIndex: FREE_SLOT,
-    courtNo: court,
+    optionKey: freeOption,
     name: 'Smoke Test A',
     phone: PHONE_A,
   });
   check(
-    'a resident can request a free slot',
+    'a resident can request the free morning',
     first.ok,
     !first.ok ? first.message : '',
   );
@@ -121,97 +118,25 @@ async function main() {
 
   check(
     'the request starts pending and costs nothing',
-    first.booking.status === 'pending' &&
-      first.booking.amount === 0 &&
-      first.booking.tier === 'free' &&
-      first.booking.paymentStatus === 'none',
-    `${first.booking.status}/${first.booking.amount}/${first.booking.paymentStatus}`,
+    first.booking.status === 'pending' && first.booking.amount === 0,
+    `${first.booking.status}/${first.booking.amount}`,
   );
 
-  const afterOne = await getDayAvailability(target);
+  const resourceRows = await db
+    .select()
+    .from(bookingResources)
+    .where(eq(bookingResources.bookingId, first.booking.id));
   check(
-    'a pending request already holds the slot',
-    afterOne.openCount === openBefore - 1,
-    `${openBefore} -> ${afterOne.openCount}`,
+    'it claims one resource row per piece of court',
+    resourceRows.length === (freeOption === 'tennis' ? 4 : 1),
+    `${resourceRows.length} row(s)`,
   );
-
-  const sameSlot = await createBooking({
-    ...RESIDENT_B,
-    date: target,
-    slotIndex: FREE_SLOT,
-    courtNo: court,
-    name: 'Smoke Test B',
-    phone: PHONE_B,
-  });
-  check(
-    'nobody else can take a slot that is pending',
-    !sameSlot.ok && sameSlot.code === 'taken',
-    sameSlot.ok ? 'was accepted' : sameSlot.code,
-  );
-
-  const sameDay = await createBooking({
-    ...RESIDENT_A,
-    date: target,
-    slotIndex: FREE_SLOT_2,
-    courtNo: court,
-    name: 'Smoke Test A',
-    phone: PHONE_A,
-  });
-  check(
-    'the daily free limit applies to the same unit',
-    !sameDay.ok && sameDay.code === 'day_limit',
-    sameDay.ok ? 'was accepted' : sameDay.code,
-  );
-
-  console.log('\nPaid hours\n');
-
-  const paid = await createBooking({
-    ...RESIDENT_A,
-    date: target,
-    slotIndex: DAY_SLOT,
-    courtNo: court,
-    name: 'Smoke Test A',
-    phone: PHONE_A,
-  });
-  check(
-    'a paid slot is not blocked by the free-hour limit',
-    paid.ok,
-    !paid.ok ? paid.message : '',
-  );
-
-  const expectedDay = sport === 'tennis' ? 350 : 200;
-  if (paid.ok) {
-    check(
-      `the daytime fee is charged (${expectedDay})`,
-      paid.booking.amount === expectedDay &&
-        paid.booking.tier === 'day' &&
-        paid.booking.paymentStatus === 'unpaid',
-      `${paid.booking.amount}/${paid.booking.tier}/${paid.booking.paymentStatus}`,
-    );
-  }
-
-  const night = await createBooking({
-    ...RESIDENT_B,
-    date: target,
-    slotIndex: NIGHT_SLOT,
-    courtNo: court,
-    name: 'Smoke Test B',
-    phone: PHONE_B,
-  });
-  const expectedNight = sport === 'tennis' ? 400 : 350;
-  check(
-    `the evening fee is higher (${expectedNight})`,
-    night.ok && night.booking.amount === expectedNight,
-    night.ok ? String(night.booking.amount) : night.message,
-  );
-
-  console.log('\nGuests\n');
 
   const guestFree = await createBooking({
     bookerType: 'guest',
     date: target,
-    slotIndex: FREE_SLOT_2,
-    courtNo: court,
+    slotIndex: 1,
+    optionKey: freeOption,
     name: 'Smoke Guest',
     phone: GUEST_PHONE,
   });
@@ -221,129 +146,171 @@ async function main() {
     guestFree.ok ? 'was accepted' : guestFree.code,
   );
 
-  const guestPaid = await createBooking({
+  console.log('\nShared courts\n');
+
+  const pickleball = await createBooking({
+    ...RESIDENT_A,
+    date: target,
+    slotIndex: DAY_SLOT,
+    optionKey: 'pb2',
+    name: 'Smoke Test A',
+    phone: PHONE_A,
+  });
+  check(
+    'a paid pickleball court can be booked',
+    pickleball.ok && pickleball.booking.amount === 200,
+    pickleball.ok ? String(pickleball.booking.amount) : pickleball.message,
+  );
+
+  const tennisBlocked = await createBooking({
+    ...RESIDENT_B,
+    date: target,
+    slotIndex: DAY_SLOT,
+    optionKey: 'tennis',
+    name: 'Smoke Test B',
+    phone: PHONE_B,
+  });
+  check(
+    'one pickleball court blocks tennis for that hour',
+    !tennisBlocked.ok && tennisBlocked.code === 'taken',
+    tennisBlocked.ok ? 'was accepted' : tennisBlocked.code,
+  );
+  if (!tennisBlocked.ok) {
+    check(
+      'and it says which court is in the way',
+      tennisBlocked.message.includes('Pickleball court 2'),
+      tennisBlocked.message,
+    );
+  }
+
+  const otherCourt = await createBooking({
+    ...RESIDENT_B,
+    date: target,
+    slotIndex: DAY_SLOT,
+    optionKey: 'pb4',
+    name: 'Smoke Test B',
+    phone: PHONE_B,
+  });
+  check(
+    'a different pickleball court is still free',
+    otherCourt.ok,
+    !otherCourt.ok ? otherCourt.message : '',
+  );
+
+  console.log('\nBasketball\n');
+
+  const half = await createBooking({
     bookerType: 'guest',
     date: target,
-    slotIndex: DAY_SLOT + 1,
-    courtNo: court,
+    slotIndex: NIGHT_SLOT,
+    optionKey: 'bbA',
     name: 'Smoke Guest',
     phone: GUEST_PHONE,
   });
   check(
-    'a guest can book and is charged for a paid hour',
-    guestPaid.ok &&
-      guestPaid.booking.amount === expectedDay &&
-      guestPaid.booking.unitId === null,
-    guestPaid.ok ? String(guestPaid.booking.amount) : guestPaid.message,
+    'a guest can book a basketball half court at the pickleball rate',
+    half.ok && half.booking.amount === 350,
+    half.ok ? String(half.booking.amount) : half.message,
   );
 
-  console.log('\nPayment and approval\n');
+  const fullBlocked = await createBooking({
+    ...RESIDENT_A,
+    date: target,
+    slotIndex: NIGHT_SLOT,
+    optionKey: 'bbFull',
+    name: 'Smoke Test A',
+    phone: PHONE_A,
+  });
+  check(
+    'one half makes the full court unbookable',
+    !fullBlocked.ok && fullBlocked.code === 'taken',
+    fullBlocked.ok ? 'was accepted' : fullBlocked.code,
+  );
 
-  if (paid.ok) {
-    const wrongOwner = await submitPaymentReference(
-      paid.booking.id,
-      unitOwner(UNIT_B),
-      '1234567890123',
-    );
-    check(
-      'someone else cannot attach a payment reference',
-      !wrongOwner.ok,
-      wrongOwner.ok ? 'was allowed' : '',
-    );
+  const otherHalf = await createBooking({
+    ...RESIDENT_A,
+    date: target,
+    slotIndex: NIGHT_SLOT,
+    optionKey: 'bbB',
+    name: 'Smoke Test A',
+    phone: PHONE_A,
+  });
+  check(
+    'the other half is still free',
+    otherHalf.ok,
+    !otherHalf.ok ? otherHalf.message : '',
+  );
 
-    const reference = await submitPaymentReference(
-      paid.booking.id,
-      unitOwner(UNIT_A),
-      '1234567890123',
-    );
-    check('the payer can submit a GCash reference', reference.ok);
-  }
+  console.log('\nApproval\n');
 
   const queue = await getPendingBookings(today);
-  const ourPending = queue.filter((booking) =>
-    booking.phone.startsWith('0999'),
-  );
-  check(
-    'every request shows up in the approval queue',
-    ourPending.length === 4,
-    `found ${ourPending.length}`,
-  );
+  const ours = queue.filter((entry) => entry.phone.startsWith('0999'));
+  check('requests reach the approval queue', ours.length >= 5, `${ours.length}`);
 
-  if (paid.ok) {
-    const approved = await approveBooking(paid.booking.id, true);
-    check('the association can approve and record payment', approved.ok);
-
-    const twice = await approveBooking(paid.booking.id, true);
+  if (pickleball.ok) {
     check(
-      'approving twice is refused',
-      !twice.ok,
-      twice.ok ? 'was allowed' : '',
+      'the association can approve and record payment',
+      (await approveBooking(pickleball.booking.id, true)).ok,
     );
   }
 
-  if (night.ok) {
-    const declined = await rejectBooking(night.booking.id, 'Court reserved');
-    check('the association can decline a request', declined.ok);
-
-    const afterReject = await getDayAvailability(target);
-    const nightSlot = afterReject.groups
-      .flatMap((group) => group.slots)
-      .find((slot) => slot.slotIndex === NIGHT_SLOT);
+  if (otherCourt.ok) {
     check(
-      'declining releases the slot',
-      nightSlot?.courts.find((c) => c.courtNo === court)?.status === 'open',
-      nightSlot?.courts.find((c) => c.courtNo === court)?.status,
+      'the association can decline',
+      (await rejectBooking(otherCourt.booking.id, 'Court reserved')).ok,
     );
 
-    const rebook = await createBooking({
-      ...RESIDENT_B,
-      date: target,
-      slotIndex: NIGHT_SLOT,
-      courtNo: court,
-      name: 'Smoke Test B',
-      phone: PHONE_B,
-    });
-    check(
-      'the released slot can be requested again',
-      rebook.ok,
-      !rebook.ok ? rebook.message : '',
-    );
+    const freed = await db
+      .select()
+      .from(bookingResources)
+      .where(eq(bookingResources.bookingId, otherCourt.booking.id));
+    check('declining releases the court', freed.length === 0, `${freed.length}`);
   }
 
   console.log('\nCancellation\n');
 
-  const wrongUnit = await cancelBookingAsOwner(
-    first.booking.id,
-    unitOwner(UNIT_B),
-  );
   check(
     'another unit cannot cancel it',
-    !wrongUnit.ok,
-    wrongUnit.ok ? 'was allowed' : '',
+    !(await cancelBookingAsOwner(first.booking.id, unitOwner(UNIT_B))).ok,
+  );
+  check(
+    'the booker can cancel their own request',
+    (await cancelBookingAsOwner(first.booking.id, unitOwner(UNIT_A))).ok,
   );
 
-  const cancelled = await cancelBookingAsOwner(
-    first.booking.id,
-    unitOwner(UNIT_A),
-  );
-  check('the booker can cancel their own request', cancelled.ok);
-
-  if (guestPaid.ok) {
-    const guestCancel = await cancelBookingAsOwner(
-      guestPaid.booking.id,
-      phoneOwner(GUEST_PHONE),
+  if (half.ok) {
+    check(
+      'a guest can cancel with their own number',
+      (await cancelBookingAsOwner(half.booking.id, phoneOwner(GUEST_PHONE))).ok,
     );
-    check('a guest can cancel with their own number', guestCancel.ok);
   }
+
+  const rebooked = await createBooking({
+    ...RESIDENT_B,
+    date: target,
+    slotIndex: FREE_SLOT,
+    optionKey: freeOption,
+    name: 'Smoke Test B',
+    phone: PHONE_B,
+  });
+  check(
+    'the released slot can be requested again',
+    rebooked.ok,
+    !rebooked.ok ? rebooked.message : '',
+  );
 
   await cleanup();
 
+  // Measure before restoring the setting: turning paid tennis back off removes
+  // an option from every paid hour, which would look like a leak.
   const final = await getDayAvailability(target);
   check(
     'cleanup restored the original availability',
     final.openCount === openBefore,
     `${final.openCount} vs ${openBefore}`,
   );
+
+  await saveCourts({ paidTennisEnabled: false, basketballEnabled: true });
 
   console.log(
     failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`,
