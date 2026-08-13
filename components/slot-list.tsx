@@ -27,6 +27,11 @@ function TierSection({
   day: DayAvailability;
   group: TierGroup;
 }) {
+  // A slot whose start time has gone is dead weight — on an eighteen-hour day
+  // it can push everything bookable past the fold.
+  const upcoming = group.slots.filter((slot) => !hasPassed(slot));
+  const allPassed = group.slots.every(hasPassed);
+
   return (
     <section>
       <div className="mb-2 flex items-baseline justify-between gap-2">
@@ -47,19 +52,23 @@ function TierSection({
         </span>
       </div>
 
-      {group.openCount === 0 ? (
+      {upcoming.length === 0 ? (
         <p className="rounded-xl border border-edge bg-background px-4 py-3 text-center text-sm text-muted">
-          Nothing open in this block.
+          {allPassed ? 'These hours have passed.' : 'Nothing open in this block.'}
         </p>
       ) : (
         <ul className="space-y-2">
-          {group.slots.map((slot) => (
+          {upcoming.map((slot) => (
             <SlotRow key={slot.slotIndex} date={day.date} slot={slot} />
           ))}
         </ul>
       )}
     </section>
   );
+}
+
+function hasPassed(slot: SlotAvailability): boolean {
+  return slot.courts.every((court) => court.status === 'past');
 }
 
 function SlotRow({ date, slot }: { date: string; slot: SlotAvailability }) {

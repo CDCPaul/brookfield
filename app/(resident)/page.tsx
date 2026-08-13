@@ -45,6 +45,15 @@ export default async function TodayPage() {
 
       <ClosureNotice closures={closures} />
 
+      {/* Above the slot list: with eighteen hourly slots, a strip below them
+          would sit far past the fold. Pick a day, then pick a time. */}
+      <section className="space-y-2">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
+          Next 7 days
+        </h2>
+        <DateStrip days={strip} selected={today} />
+      </section>
+
       {dayIsOver ? (
         <section className="rounded-2xl border border-edge bg-surface p-5 text-center">
           <p className="text-base font-semibold">Nothing left today</p>
@@ -65,13 +74,6 @@ export default async function TodayPage() {
           <SlotList day={day} />
         </>
       )}
-
-      <section className="space-y-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
-          Next 7 days
-        </h2>
-        <DateStrip days={strip} selected={today} />
-      </section>
 
       <section className="rounded-2xl border border-edge bg-surface p-4">
         <h2 className="text-sm font-semibold">Good to know</h2>
