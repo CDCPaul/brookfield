@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "smoke": "tsx --env-file=.env.local scripts/smoke.ts"
+    "smoke": "tsx --env-file=.env.local scripts/smoke.ts",
+    "db:clear": "tsx --env-file=.env.local scripts/clear-data.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
