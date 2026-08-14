@@ -1,4 +1,4 @@
-﻿import { DateStrip } from '@/components/date-strip';
+import { DateStrip } from '@/components/date-strip';
 import { SlotPicker } from '@/components/slot-picker';
 import { SportTabs } from '@/components/sport-tabs';
 import { Notice } from '@/components/ui';

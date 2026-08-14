@@ -41,17 +41,17 @@ export async function POST(request: Request) {
     return fail('Please upload a photo or screenshot.', 415);
   }
 
-  // Random suffix so the URL cannot be guessed from the booking id.
-  let blob;
+  // Private: a payment receipt carries the payer's name and amount, so it is
+  // readable only through the admin route, never from a URL someone could
+  // stumble on or pass around.
+  let stored;
   try {
-    blob = await put(`payment-proof/${bookingIds[0]}`, file, {
-      access: 'public',
+    stored = await put(`payment-proof/${bookingIds[0]}`, file, {
+      access: 'private',
       addRandomSuffix: true,
       contentType: file.type,
     });
   } catch (error) {
-    // Almost always a store that is not reachable from this deployment. Say so
-    // plainly — a generic failure here reads as "the app is broken".
     console.error('Blob upload failed', error);
     return fail(
       'Could not store the screenshot. Please tell the association.',
@@ -62,9 +62,9 @@ export async function POST(request: Request) {
 
   // One receipt covers every hour booked together.
   for (const bookingId of bookingIds) {
-    const result = await attachPaymentProof(bookingId, owner, blob.url);
+    const result = await attachPaymentProof(bookingId, owner, stored.pathname);
     if (!result.ok) return fail(result.message, 400);
   }
 
-  return NextResponse.json({ url: blob.url });
+  return NextResponse.json({ ok: true });
 }

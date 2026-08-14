@@ -90,18 +90,18 @@ export default async function RequestsPage() {
                       ) : null}
                       {booking.paymentProofUrl ? (
                         <a
-                          href={booking.paymentProofUrl}
+                          href={`/admin/proof/${booking.id}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="flex items-center gap-1.5 text-xs font-medium underline"
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
-                            src={booking.paymentProofUrl}
+                            src={`/admin/proof/${booking.id}`}
                             alt=""
                             className="size-10 rounded border border-edge object-cover"
                           />
-                          View screenshot
+                          View receipt
                         </a>
                       ) : null}
                     </div>

@@ -8,6 +8,7 @@ import {
   lookupBookingsAction,
   type LookupState,
 } from '@/app/actions';
+import { courtLabel } from '@/components/booker-label';
 import { PaymentBadge, StatusBadge } from '@/components/booking-status';
 import { PaymentInstructions } from '@/components/payment-instructions';
 import { PaymentProofUpload } from '@/components/payment-proof-upload';
@@ -230,10 +231,8 @@ function BookingCard({
           </p>
           <p className="text-sm text-muted">{slot.label}</p>
           <p className="mt-1 text-sm">
-            {booking.sport === 'tennis'
-              ? 'Tennis court'
-              : `Court ${booking.courtNo}`}{' '}
-            · <span className="font-mono tracking-widest">{booking.code}</span>
+            {courtLabel(booking)} ·{' '}
+            <span className="font-mono tracking-widest">{booking.code}</span>
           </p>
           <p className="text-xs text-muted">{booking.bookerName}</p>
         </div>
@@ -259,7 +258,7 @@ function BookingCard({
             <PaymentProofUpload
               bookingIds={[booking.id]}
               owner={owner}
-              existingUrl={booking.paymentProofUrl}
+              alreadySent={Boolean(booking.paymentProofUrl)}
             />
           ) : null}
         </div>
@@ -295,4 +294,5 @@ function BookingCard({
     </li>
   );
 }
+
 

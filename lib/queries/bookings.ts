@@ -724,6 +724,18 @@ export async function attachPaymentProof(
   return { ok: true };
 }
 
+/** The stored path of a booking's payment screenshot, if it has one. */
+export async function getBookingProof(
+  bookingId: number,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ path: bookings.paymentProofUrl })
+    .from(bookings)
+    .where(eq(bookings.id, bookingId))
+    .limit(1);
+  return row?.path ?? null;
+}
+
 /** Screenshots past their retention window, for the cleanup job. */
 export async function getExpiredProofs(
   before: DateStr,

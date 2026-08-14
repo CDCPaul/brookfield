@@ -23,16 +23,18 @@ type Status =
 export function PaymentProofUpload({
   bookingIds,
   owner,
-  existingUrl,
+  alreadySent,
 }: {
   /** Every slot the receipt covers — hours booked together are paid as one. */
   bookingIds: number[];
   owner: string;
-  existingUrl: string | null;
+  /** A receipt is already on file. It is not shown back: the store is private. */
+  alreadySent: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [preview, setPreview] = useState<string | null>(existingUrl);
+  const [preview, setPreview] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
+  const onFile = alreadySent || status.kind === 'done';
 
   async function handleFile(file: File) {
     if (file.size > MAX_PROOF_BYTES * 4) {
@@ -137,19 +139,19 @@ export function PaymentProofUpload({
             aria-hidden="true"
             className="grid size-16 shrink-0 place-items-center rounded-lg bg-background text-2xl"
           >
-            📷
+            {onFile ? '✅' : '📷'}
           </span>
         )}
 
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-medium">
-            {preview ? 'Change screenshot' : 'Add your GCash screenshot'}
+            {onFile ? 'Replace the receipt' : 'Add your GCash screenshot'}
           </span>
           <span className="block text-xs text-muted">
             {uploading
               ? `Uploading… ${status.percent}%`
-              : preview
-                ? 'Tap to choose a different image'
+              : onFile
+                ? 'Already sent. Tap only if you need to send a different one.'
                 : 'Take a photo or pick from your gallery'}
           </span>
         </span>

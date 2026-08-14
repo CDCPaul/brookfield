@@ -127,7 +127,7 @@ export default async function BookingPage({
                 <PaymentProofUpload
                   bookingIds={group.map((entry) => entry.id)}
                   owner={owner}
-                  existingUrl={first.paymentProofUrl}
+                  alreadySent={Boolean(first.paymentProofUrl)}
                 />
               ) : (
                 <p className="text-sm text-muted">

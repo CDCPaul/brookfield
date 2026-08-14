@@ -66,7 +66,10 @@ export const bookings = pgTable(
     paymentStatus: text('payment_status').notNull().default('none'),
     /** GCash reference number the payer typed in, for the admin to match. */
     paymentRef: text('payment_ref'),
-    /** Blob URL of the payment screenshot. Cleared once it is old enough. */
+    /**
+     * Blob pathname of the payment screenshot — the store is private, so this
+     * is not a URL anyone can open. Cleared once it is old enough.
+     */
     paymentProofUrl: text('payment_proof_url'),
     paidAt: timestamp('paid_at', { withTimezone: true }),
     /** Null for guests, who have no unit in the village. */
