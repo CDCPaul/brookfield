@@ -185,6 +185,53 @@ export const settings = pgTable('settings', {
   value: jsonb('value').notNull(),
 });
 
+/**
+ * Browsers signed up for push notifications.
+ *
+ * A subscription belongs to a browser, not a person: the same phone number can
+ * appear twice if someone books from both their phone and a laptop, and one
+ * browser holds one subscription no matter how often it is re-registered —
+ * hence the unique endpoint.
+ *
+ * Push is the free half of the notification pair and it is best-effort. A
+ * subscription dies silently when the browser is cleared or the app is
+ * uninstalled, and the push service only says so on the next send; those are
+ * deleted when they come back 404 or 410. Text messages are what actually
+ * guarantee delivery, which is why both are sent.
+ */
+export const pushSubscriptions = pgTable(
+  'push_subscriptions',
+  {
+    id: serial('id').primaryKey(),
+    /** The push service URL. Unique per browser, and effectively the identity. */
+    endpoint: text('endpoint').notNull(),
+    /** Keys from the browser, used to encrypt the payload. */
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    /**
+     * 'admin' for the association console, 'booker' for a resident or guest.
+     * An admin subscription hears about every new request; a booker's hears
+     * only about their own bookings.
+     */
+    audience: text('audience').notNull().default('booker'),
+    /** Normalized to 09XXXXXXXXX. Null for admins, who are not a phone number. */
+    phone: text('phone'),
+    /** Trimmed to something short — only used to tell devices apart in the UI. */
+    userAgent: text('user_agent'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('push_subscriptions_endpoint_idx').on(table.endpoint),
+    index('push_subscriptions_audience_idx').on(table.audience),
+    index('push_subscriptions_phone_idx').on(table.phone),
+  ],
+);
+
 export type Unit = typeof units.$inferSelect;
 export type NewUnit = typeof units.$inferInsert;
 export type Booking = typeof bookings.$inferSelect;
@@ -192,3 +239,5 @@ export type NewBooking = typeof bookings.$inferInsert;
 export type ClosureRow = typeof closures.$inferSelect;
 export type NewClosure = typeof closures.$inferInsert;
 export type BookingResource = typeof bookingResources.$inferSelect;
+export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
+export type NewPushSubscription = typeof pushSubscriptions.$inferInsert;

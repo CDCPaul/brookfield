@@ -99,6 +99,7 @@ function toNotify(stored: Map<string, unknown>): NotifyConfig {
       source.textFreeBookings,
       DEFAULT_NOTIFY.textFreeBookings,
     ),
+    pushEnabled: readBoolean(source.pushEnabled, DEFAULT_NOTIFY.pushEnabled),
   };
 }
 

@@ -41,16 +41,22 @@ export function isPaymentConfigured(payment: PaymentConfig): boolean {
  */
 export const PAYMENT_HOLD_MINUTES = 15;
 
-/** Who gets told about new requests, and whether texting is on at all. */
+/** Who gets told about new requests, and through which channels. */
 export type NotifyConfig = {
   /** Association numbers that receive a text for every new request. */
   adminPhones: string[];
-  /** Text the association when a request comes in. */
+  /** Tell the association when a request comes in. */
   textAdminOnRequest: boolean;
-  /** Text the booker when their request is decided. */
+  /** Tell the booker when their request is decided. */
   textBookerOnDecision: boolean;
-  /** Skip texting for free bookings, where nothing is at stake. */
+  /** Notify for free bookings too, where nothing is at stake. */
   textFreeBookings: boolean;
+  /**
+   * Send web push alongside the text. Push costs nothing and arrives faster,
+   * but only reaches browsers that opted in — it adds to the text rather than
+   * replacing it.
+   */
+  pushEnabled: boolean;
 };
 
 export const DEFAULT_NOTIFY: NotifyConfig = {
@@ -58,6 +64,7 @@ export const DEFAULT_NOTIFY: NotifyConfig = {
   textAdminOnRequest: true,
   textBookerOnDecision: true,
   textFreeBookings: false,
+  pushEnabled: true,
 };
 
 export const MAX_PROOF_BYTES = 2 * 1024 * 1024;

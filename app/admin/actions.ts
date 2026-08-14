@@ -386,6 +386,7 @@ export async function saveNotifyAction(
     textAdminOnRequest: text(formData, 'textAdminOnRequest') === 'on',
     textBookerOnDecision: text(formData, 'textBookerOnDecision') === 'on',
     textFreeBookings: text(formData, 'textFreeBookings') === 'on',
+    pushEnabled: text(formData, 'pushEnabled') === 'on',
   });
 
   revalidatePath('/admin/settings');

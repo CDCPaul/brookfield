@@ -62,6 +62,7 @@ The resident app is at `/`, the association console at `/admin`.
 | `npm run db:studio` | Drizzle Studio |
 | `npm run sms:test` | Preview the text messages and their credit cost |
 | `npm run sms:test -- 09171234567` | Send one real text (costs a credit) |
+| `npm run icons` | Rebuild the home-screen and notification icons from `public/icon.svg` |
 
 > **After every `db:push`, run `npm run smoke`.** `drizzle-kit push` does not
 > notice changes to the *predicate* of a partial index — it leaves the old
@@ -94,18 +95,36 @@ residents and on the mobile number for guests, so choosing "guest" is not a way
 around them. Hours, prices, GCash details and limits are all editable at
 `/admin/settings`.
 
-## Text messages
+## Notifications
 
+Two channels go out together, and neither is a condition of booking: if a push
+service or Semaphore is unconfigured, down or out of credit, the booking still
+goes through and the failure is logged. Free morning bookings are quiet by
+default, since there is no payment to chase. Who gets told, and about what, is
+set at `/admin/settings`.
+
+**Text messages** reach every Philippine mobile and need nothing installed.
 Semaphore bills one credit per 160 characters and segments at 153 after that,
 so a message that drifts one character over costs double. Every template in
 `lib/notify/messages.ts` is written to fit one credit and the tests hold them
-there — check `npm run sms:test` before changing the wording.
+there — check `npm run sms:test` before changing the wording. Semaphore also
+refuses to send without a sender name it has approved; there is no default to
+fall back on, and applying takes a few days.
 
-Texting is never a condition of booking: if Semaphore is unconfigured, down or
-out of credit, the booking still goes through and the failure is logged. Free
-morning bookings are quiet by default, since there is no payment to chase.
+**Web push** is free, instant and carries more words, but only reaches a
+browser that opted in — and on iOS, only one that has been added to the home
+screen. Subscriptions live in `push_subscriptions`, keyed on the endpoint so a
+browser has one however often it re-registers. A subscription dies silently
+when a browser is cleared; the push service only says so on the next send, and
+those are deleted when they come back 404 or 410.
 
-Who gets texted, and about what, is set at `/admin/settings`.
+Both are sent to the same person for the same event. Suppressing the text for
+anyone holding a subscription would save a few pesos and cost the one guarantee
+the system has — push can fail without telling anyone, and a booker who never
+learns their court fell through will turn up to a locked gate.
+
+Run `npm run icons` after changing `public/icon.svg`; the PNGs the home screen
+and notification tray need are committed, so no build step depends on sharp.
 
 ## Known trade-offs
 

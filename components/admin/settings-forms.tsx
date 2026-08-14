@@ -288,11 +288,29 @@ export function NotifyForm({
         />
         <span>
           <span className="block text-sm font-medium">
-            Text about free morning bookings too
+            Notify about free morning bookings too
           </span>
           <span className="block text-xs text-muted">
             Off by default — there is no payment to chase, and every text costs
             a credit.
+          </span>
+        </span>
+      </label>
+
+      <label className="flex items-start gap-3 rounded-xl border border-edge p-3">
+        <input
+          type="checkbox"
+          name="pushEnabled"
+          defaultChecked={notify.pushEnabled}
+          className="mt-0.5 size-5 accent-[#4a7c2b]"
+        />
+        <span>
+          <span className="block text-sm font-medium">
+            Send a browser notification as well
+          </span>
+          <span className="block text-xs text-muted">
+            Free and instant, but only to phones that turned it on. It is sent
+            alongside the text, never instead of it.
           </span>
         </span>
       </label>

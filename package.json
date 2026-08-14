@@ -15,7 +15,8 @@
     "db:clear": "tsx --env-file=.env.local scripts/clear-data.ts",
     "db:migrate-courts": "tsx --env-file=.env.local scripts/migrate-courts.ts",
     "db:migrate-bookers": "tsx --env-file=.env.local scripts/migrate-bookers.ts",
-    "sms:test": "tsx --env-file=.env.local scripts/test-sms.ts"
+    "sms:test": "tsx --env-file=.env.local scripts/test-sms.ts",
+    "icons": "tsx scripts/make-icons.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
@@ -24,13 +25,15 @@
     "jose": "^6.2.8",
     "next": "16.3.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",

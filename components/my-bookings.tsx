@@ -12,6 +12,7 @@ import { courtLabel } from '@/components/booker-label';
 import { PaymentBadge, StatusBadge } from '@/components/booking-status';
 import { PaymentInstructions } from '@/components/payment-instructions';
 import { PaymentProofUpload } from '@/components/payment-proof-upload';
+import { PushToggle } from '@/components/push-toggle';
 import {
   Field,
   Notice,
@@ -166,6 +167,17 @@ export function MyBookings({
           </Link>
           .
         </Notice>
+      ) : null}
+
+      {hasBookings ? (
+        <div className="rounded-2xl border border-edge bg-surface p-4">
+          <PushToggle
+            audience="booker"
+            phone={bookings[0].phone}
+            label="Tell me here when a booking is decided"
+            hint="Free, and it arrives the moment the association decides. You still get the text."
+          />
+        </div>
       ) : null}
 
       {hasBookings ? (

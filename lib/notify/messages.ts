@@ -32,7 +32,31 @@ export type RequestSummary = {
   name: string;
   amount: number;
   lines: BookingLine[];
+  /** Booking reference, so a notification can open the right screen. */
+  code?: string;
 };
+
+/**
+ * What the service worker in public/sw.js renders.
+ *
+ * Declared here rather than beside the sender so the wording stays in one
+ * pure, testable module.
+ */
+export type PushPayload = {
+  title: string;
+  body: string;
+  url: string;
+  tag?: string;
+  important?: boolean;
+};
+
+/**
+ * Push is not billed by the character, so it says the same things in full.
+ *
+ * Phones still truncate a long notification in the tray, so this is generous
+ * rather than unlimited — enough for a full day across every court.
+ */
+const PUSH_BUDGET = 240;
 
 /** Sent to the association when someone asks for a court. */
 export function newRequestSms(summary: RequestSummary): string {
@@ -61,6 +85,50 @@ export function declinedSms(summary: RequestSummary, note: string): string {
   const spans = describeSpans(summary.lines, room(head, tail));
   const left = room(head, tail) - spans.length;
   return trim(head + spans + fitNote(note, left) + tail);
+}
+
+/** Pushed to the association when someone asks for a court. */
+export function newRequestPush(summary: RequestSummary): PushPayload {
+  const fee = summary.amount > 0 ? `P${summary.amount}` : 'Free';
+  return {
+    title: `New request — ${fee}`,
+    body:
+      `${fitName(summary.name)}\n` +
+      `${formatShortDate(summary.date)} ${describeSpans(summary.lines, PUSH_BUDGET)}`,
+    url: '/admin/requests',
+    // One request, one notification, however many times it is re-sent.
+    tag: `request-${summary.code ?? summary.date}`,
+    important: true,
+  };
+}
+
+/** Pushed to the booker once the association approves. */
+export function confirmedPush(summary: RequestSummary): PushPayload {
+  return {
+    title: 'Court confirmed',
+    body:
+      `${formatShortDate(summary.date)} ${describeSpans(summary.lines, PUSH_BUDGET)}\n` +
+      'Arrive 10-15 minutes early. Water and sports drinks only.',
+    url: summary.code ? `/booking/${summary.code}` : '/my',
+    tag: `booking-${summary.code ?? summary.date}`,
+  };
+}
+
+/** Pushed when the association turns a request down. */
+export function declinedPush(
+  summary: RequestSummary,
+  note: string,
+): PushPayload {
+  const reason = note.trim() ? `\n${note.trim()}` : '';
+  return {
+    title: 'Request not confirmed',
+    body:
+      `${formatShortDate(summary.date)} ${describeSpans(summary.lines, PUSH_BUDGET)}` +
+      `${reason}\n` +
+      'The slot has been released.',
+    url: summary.code ? `/booking/${summary.code}` : '/my',
+    tag: `booking-${summary.code ?? summary.date}`,
+  };
 }
 
 /** What is left for the schedule once the fixed wording is paid for. */

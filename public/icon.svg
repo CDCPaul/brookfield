@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="BrookSide Bounce">
+  <title>BrookSide Bounce</title>
+  <defs>
+    <radialGradient id="sun" cx="40%" cy="35%" r="70%">
+      <stop offset="0%" stop-color="#ffe27a"/>
+      <stop offset="60%" stop-color="#fbc02d"/>
+      <stop offset="100%" stop-color="#f39c12"/>
+    </radialGradient>
+    <radialGradient id="ball" cx="35%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#f4e04d"/>
+      <stop offset="100%" stop-color="#d4b81a"/>
+    </radialGradient>
+    <clipPath id="frame">
+      <rect x="3" y="3" width="58" height="58" rx="15"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#frame)">
+    <rect x="3" y="3" width="58" height="58" fill="#fdfdf7"/>
+
+    <g stroke="#f5b120" stroke-width="2.6" stroke-linecap="round">
+      <line x1="24" y1="13" x2="24" y2="8" transform="rotate(-70 24 24)"/>
+      <line x1="24" y1="13" x2="24" y2="8" transform="rotate(-45 24 24)"/>
+      <line x1="24" y1="13" x2="24" y2="8" transform="rotate(-20 24 24)"/>
+      <line x1="24" y1="13" x2="24" y2="8" transform="rotate(5 24 24)"/>
+      <line x1="24" y1="13" x2="24" y2="8" transform="rotate(30 24 24)"/>
+    </g>
+    <circle cx="24" cy="24" r="8.5" fill="url(#sun)"/>
+
+    <path d="M4 44c0-6.2 4.6-11.2 10.3-11.2 1.6-4 6.4-6.8 11.9-6.8 6.9 0 12.5 4.6 12.5 10.3V44Z" fill="#2f7d32"/>
+    <path d="M30 44c0-5.4 4-9.8 9-9.8s9 4.4 9 9.8H30Z" fill="#4f9e3f"/>
+
+    <circle cx="44" cy="33" r="10.5" fill="url(#ball)"/>
+    <circle cx="41" cy="29" r="1.35" fill="#b39a10"/>
+    <circle cx="47" cy="30" r="1.35" fill="#b39a10"/>
+    <circle cx="40.5" cy="35" r="1.35" fill="#b39a10"/>
+    <circle cx="46.5" cy="36" r="1.35" fill="#b39a10"/>
+    <circle cx="43.5" cy="39.5" r="1.35" fill="#b39a10"/>
+
+    <path d="M0 47c8-4 14 4 22 0s14-4 22 0 14 0 20-3v20H0Z" fill="#ffffff"/>
+    <g fill="none" stroke-linecap="round">
+      <path d="M0 47c8-4 14 4 22 0s14-4 22 0 14 0 20-3" stroke="#2f9fd0" stroke-width="2.4"/>
+      <path d="M0 52c8-4 14 4 22 0s14-4 22 0 14 0 20-3" stroke="#9fd8f2" stroke-width="2.2"/>
+      <path d="M0 57c8-4 14 4 22 0s14-4 22 0 14 0 20-3" stroke="#2f9fd0" stroke-width="2"/>
+    </g>
+  </g>
+
+  <rect x="3" y="3" width="58" height="58" rx="15" fill="none" stroke="#3f8b32" stroke-width="3"/>
+</svg>

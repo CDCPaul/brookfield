@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   SMS_SINGLE_LIMIT,
+  confirmedPush,
   confirmedSms,
+  declinedPush,
   declinedSms,
+  newRequestPush,
   newRequestSms,
   type RequestSummary,
 } from './messages';
@@ -167,6 +170,53 @@ describe('when even the compressed schedule will not fit', () => {
     expect(message).toContain('P7200');
     expectWhole(message, REQUEST_TAIL);
     expectOneCredit(message);
+  });
+});
+
+describe('push notifications', () => {
+  it('says the same things without paying by the character', () => {
+    const push = confirmedPush({ ...base, code: 'AB12CD' });
+    expect(push.title).toBe('Court confirmed');
+    expect(push.body).toContain('12PM-2PM Court 2');
+    expect(push.body).toContain('Water and sports drinks only');
+    expect(push.url).toBe('/booking/AB12CD');
+  });
+
+  it('sends the association to the requests screen', () => {
+    const push = newRequestPush({ ...base, code: 'AB12CD' });
+    expect(push.title).toContain('P400');
+    expect(push.body).toContain('Juan Dela Cruz');
+    expect(push.url).toBe('/admin/requests');
+    // The association should have to dismiss it rather than miss it.
+    expect(push.important).toBe(true);
+  });
+
+  it('keeps a booking to one notification however often it is sent', () => {
+    const first = confirmedPush({ ...base, code: 'AB12CD' });
+    const second = declinedPush({ ...base, code: 'AB12CD' }, 'Rained off');
+    expect(first.tag).toBe(second.tag);
+  });
+
+  it('falls back to the bookings list when there is no reference', () => {
+    expect(confirmedPush(base).url).toBe('/my');
+    expect(declinedPush(base, '').url).toBe('/my');
+  });
+
+  it('carries the reason for a decline', () => {
+    const push = declinedPush({ ...base, code: 'AB12CD' }, 'Rained off');
+    expect(push.body).toContain('Rained off');
+    expect(push.body).toContain('released');
+  });
+
+  it('has room for a whole day across every court', () => {
+    const push = confirmedPush({
+      ...base,
+      code: 'AB12CD',
+      lines: block(['pb1', 'pb2', 'pb3', 'pb4'], [12, 13, 16, 17]),
+    });
+    expect(push.body).toContain('6PM-8PM Courts 1-4');
+    expect(push.body).toContain('10PM-12AM Courts 1-4');
+    expect(push.body).not.toContain('…');
   });
 });
 
