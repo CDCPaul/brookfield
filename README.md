@@ -92,6 +92,23 @@ residents and on the mobile number for guests, so choosing "guest" is not a way
 around them. Hours, prices, GCash details and limits are all editable at
 `/admin/settings`.
 
+## Known trade-offs
+
+**Anyone who knows a mobile number can see and cancel that person's bookings.**
+There are no accounts, and the number is the identity — so looking one up is
+all it takes. This is deliberate: passwords would keep residents off the app
+entirely, and in a village the practical risk is low. Every cancellation is
+recorded with who did it, so the association can see what happened.
+
+If it ever needs tightening, the smallest fix is to ask for the six-character
+booking reference when cancelling — lookup stays easy, but the reference only
+appears on the booker's own screen.
+
+**"Your next booking" on the home screen is not a session.** The device
+remembers what was typed the last time it booked and asks the server about that
+number. Nothing identifies the visitor server-side, so a shared phone shows
+whoever booked on it last.
+
 ## Deploying
 
 Deploy to Vercel and set `DATABASE_URL`, `ADMIN_PASSWORD` and `AUTH_SECRET` as
