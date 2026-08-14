@@ -1,5 +1,3 @@
-import Link from 'next/link';
-
 import { Card, SectionTitle } from '@/components/ui';
 import { getSettings } from '@/lib/queries/settings';
 import { formatPeso, tierRangeLabel } from '@/lib/schedule';
@@ -210,17 +208,9 @@ export default async function RulesPage() {
         </Card>
       </section>
 
-      <div className="space-y-3 border-t border-edge pt-5 text-center">
-        <p className="text-xs text-muted">
-          Questions? Contact the Brookfield Homeowners Association office.
-        </p>
-        <Link
-          href="/admin"
-          className="inline-block text-xs font-medium text-muted underline"
-        >
-          Association staff sign in
-        </Link>
-      </div>
+      <p className="border-t border-edge pt-5 text-center text-xs text-muted">
+        Questions? Contact the Brookfield Homeowners Association office.
+      </p>
     </div>
   );
 }

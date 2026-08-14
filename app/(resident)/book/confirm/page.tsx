@@ -8,9 +8,17 @@ import { getDayAvailability } from '@/lib/queries/availability';
 import { getSettings } from '@/lib/queries/settings';
 import { findSlotAvailability, type DayAvailability } from '@/lib/rules';
 import { formatPeso, getSlot, isValidSlotIndex } from '@/lib/schedule';
-import { formatLongDate, isValidDateStr } from '@/lib/time';
+import { mergeSlotSpans } from '@/lib/slot-spans';
+import { formatClock, formatLongDate, isValidDateStr } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
+
+/** '12:00 PM – 2:00 PM' across a merged run of hours. */
+function spanLabel(span: { fromSlot: number; toSlot: number }): string {
+  return `${formatClock(getSlot(span.fromSlot).startMinutes)} – ${formatClock(
+    getSlot(span.toSlot).endMinutes,
+  )}`;
+}
 
 type Pick = { slotIndex: number; option: CourtOption };
 
@@ -65,6 +73,13 @@ export default async function ConfirmPage({
   const unavailable = entries.filter(
     (entry) => entry.availability?.status !== 'open',
   );
+  const spans = mergeSlotSpans(
+    entries.map(({ pick, availability }) => ({
+      slotIndex: pick.slotIndex,
+      optionKey: pick.option.key,
+      price: availability?.price ?? 0,
+    })),
+  );
   const total = entries.reduce(
     (sum, entry) => sum + (entry.availability?.price ?? 0),
     0,
@@ -86,20 +101,16 @@ export default async function ConfirmPage({
         <p className="text-base font-semibold">{formatLongDate(date)}</p>
 
         <ul className="mt-3 space-y-2 border-t border-edge pt-3 text-sm">
-          {entries.map(({ pick, availability }) => (
+          {spans.map((span) => (
             <li
-              key={`${pick.slotIndex}:${pick.option.key}`}
+              key={`${span.fromSlot}:${span.optionKey}`}
               className="flex items-baseline justify-between gap-3"
             >
-              <span
-                className={
-                  availability?.status === 'open' ? '' : 'text-muted line-through'
-                }
-              >
-                {getSlot(pick.slotIndex).label} · {pick.option.short}
+              <span>
+                {spanLabel(span)} · {findOption(span.optionKey)?.short}
               </span>
               <span className="shrink-0 font-medium">
-                {availability?.price ? formatPeso(availability.price) : 'Free'}
+                {span.total > 0 ? formatPeso(span.total) : 'Free'}
               </span>
             </li>
           ))}

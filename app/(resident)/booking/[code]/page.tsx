@@ -1,21 +1,28 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
-import { bookerLabel, courtLabel } from '@/components/booker-label';
+import { bookerLabel } from '@/components/booker-label';
 import { PaymentBadge, StatusBadge } from '@/components/booking-status';
 import { PaymentInstructions } from '@/components/payment-instructions';
 import { PaymentProofUpload } from '@/components/payment-proof-upload';
 import { Card, Notice, PrimaryLink } from '@/components/ui';
 import { isValidBookingCode, normalizeBookingCode } from '@/lib/booking-code';
 import { encodeOwner, phoneOwner, type Owner } from '@/lib/owner';
-import { isPaymentConfigured } from '@/lib/payment';
+import { findOption } from '@/lib/courts';
+import { PAYMENT_HOLD_MINUTES, isPaymentConfigured } from '@/lib/payment';
 import { isBlobConfigured } from '@/lib/payment-proof';
 import { getBookingGroup, type BookingWithUnit } from '@/lib/queries/bookings';
 import { getSettings } from '@/lib/queries/settings';
 import { formatPeso, getSlot } from '@/lib/schedule';
-import { formatLongDate } from '@/lib/time';
+import { mergeSlotSpans } from '@/lib/slot-spans';
+import { formatClock, formatLongDate, manilaNow } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
+
+/** Manila wall-clock time of an instant, e.g. '3:45 PM'. */
+function formatClockTime(at: Date): string {
+  return formatClock(manilaNow(at).minutes);
+}
 
 /** The identity that proves this booking is yours, same as a lookup returns. */
 function ownerFor(booking: BookingWithUnit): Owner {
@@ -49,6 +56,21 @@ export default async function BookingPage({
   );
   const owner = encodeOwner(ownerFor(first));
 
+  const spans = mergeSlotSpans(
+    group.map((entry) => ({
+      slotIndex: entry.slotIndex,
+      optionKey: entry.courtOption,
+      price: entry.amount,
+    })),
+  );
+
+  // The court is only held for a short while after a paid request. An expired
+  // hold has already been cancelled by the sweep, so a pending one is live.
+  const holdUntil =
+    owes && first.status === 'pending' && first.paymentStatus === 'unpaid'
+      ? new Date(first.createdAt.getTime() + PAYMENT_HOLD_MINUTES * 60_000)
+      : null;
+
   return (
     <div className="space-y-5">
       <section className="text-center">
@@ -69,16 +91,18 @@ export default async function BookingPage({
         </p>
 
         <ul className="mt-3 space-y-2 border-t border-edge pt-3 text-sm">
-          {group.map((entry) => (
+          {spans.map((span) => (
             <li
-              key={entry.id}
+              key={`${span.fromSlot}:${span.optionKey}`}
               className="flex items-baseline justify-between gap-3"
             >
               <span>
-                {getSlot(entry.slotIndex).label} · {courtLabel(entry)}
+                {formatClock(getSlot(span.fromSlot).startMinutes)} –{' '}
+                {formatClock(getSlot(span.toSlot).endMinutes)} ·{' '}
+                {findOption(span.optionKey)?.short}
               </span>
               <span className="shrink-0 font-medium">
-                {entry.amount > 0 ? formatPeso(entry.amount) : 'Free'}
+                {span.total > 0 ? formatPeso(span.total) : 'Free'}
               </span>
             </li>
           ))}
@@ -112,6 +136,15 @@ export default async function BookingPage({
           </p>
         ) : null}
       </section>
+
+      {holdUntil ? (
+        <Notice tone="error">
+          Your court is held until{' '}
+          <strong>{formatClockTime(holdUntil)}</strong> — about{' '}
+          {PAYMENT_HOLD_MINUTES} minutes. Send the payment and upload the
+          receipt before then, or the slot goes back to everyone else.
+        </Notice>
+      ) : null}
 
       {owes ? (
         isPaymentConfigured(payment) ? (

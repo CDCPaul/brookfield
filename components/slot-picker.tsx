@@ -179,9 +179,9 @@ function SlotRow({
   selected: Set<string>;
   onToggle: (pick: Pick) => void;
 }) {
-  const taken = slot.options.filter((entry) => entry.status === 'taken');
-
   if (slot.openCount === 0) {
+    const taken = slot.options.filter((entry) => entry.status === 'taken');
+
     return (
       <li className="rounded-xl border border-edge bg-background px-4 py-3">
         <div className="flex items-center justify-between gap-2">
@@ -217,7 +217,7 @@ function SlotRow({
       </div>
 
       <ul
-        className={`mt-2.5 grid gap-2 ${
+        className={`mt-2.5 grid items-stretch gap-2 ${
           single ? 'grid-cols-1' : slot.options.length > 2 ? 'grid-cols-4' : 'grid-cols-2'
         }`}
       >
@@ -235,16 +235,6 @@ function SlotRow({
           </li>
         ))}
       </ul>
-
-      {taken.length > 0 ? (
-        <ul className="mt-2 space-y-0.5 border-t border-edge pt-2">
-          {taken.map((entry) => (
-            <li key={entry.option.key} className="text-xs text-muted">
-              {entry.option.short} — {entry.heldBy ?? 'booked'}
-            </li>
-          ))}
-        </ul>
-      ) : null}
     </li>
   );
 }
@@ -263,13 +253,18 @@ function OptionButton({
   onToggle: (pick: Pick) => void;
 }) {
   if (entry.status !== 'open') {
+    // Not a button: there is nothing to press. Naming the holder is what makes
+    // that read as taken rather than broken — especially on the tennis tab,
+    // where a court can be blocked by someone playing pickleball.
     return (
       <div
         title={entry.reason}
-        className="flex flex-col items-center rounded-xl border border-edge bg-background py-2.5 text-muted"
+        aria-label={`${entry.option.label} — ${entry.heldBy ?? entry.status}`}
+        className="flex h-full cursor-not-allowed flex-col items-center justify-center gap-0.5 rounded-xl border border-edge bg-background px-1 py-2.5 text-muted"
       >
-        <span className="text-xs font-medium line-through decoration-1">
-          {entry.option.short}
+        <span className="text-xs font-medium">{entry.option.short}</span>
+        <span className="w-full truncate text-center text-[10px] leading-tight">
+          {entry.heldBy ?? statusWord(entry.status)}
         </span>
       </div>
     );
@@ -295,6 +290,12 @@ function OptionButton({
       ) : null}
     </button>
   );
+}
+
+function statusWord(status: OptionAvailability['status']): string {
+  if (status === 'closed') return 'Closed';
+  if (status === 'past') return 'Passed';
+  return 'Booked';
 }
 
 function hasPassed(slot: SlotAvailability): boolean {

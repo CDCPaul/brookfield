@@ -3,9 +3,11 @@ import {
   asc,
   desc,
   eq,
+  gt,
   gte,
   inArray,
   isNotNull,
+  lt,
   lte,
   notInArray,
 } from 'drizzle-orm';
@@ -44,6 +46,8 @@ import {
   type UnitInput,
 } from '@/lib/unit-key';
 
+import { PAYMENT_HOLD_MINUTES } from '@/lib/payment';
+
 import { isPhoneBlocked } from './bookers';
 import { getClosures } from './closures';
 import { getSettings } from './settings';
@@ -59,6 +63,47 @@ const OCCUPYING = notInArray(bookings.status, ['cancelled', 'rejected']);
 const LIVE = inArray(bookings.status, ['pending', 'confirmed']);
 
 /**
+ * Frees courts held by requests that were never paid for.
+ *
+ * The resource rows are what physically hold a slot, and the unique index on
+ * them does not know about time — so an expired hold has to be deleted, not
+ * merely ignored, or nobody could book over it. Swept here because this is the
+ * one place that asks what is currently held.
+ */
+export async function releaseExpiredHolds(): Promise<number> {
+  const expired = await db
+    .update(bookings)
+    .set({
+      status: 'cancelled',
+      cancelledAt: new Date(),
+      cancelledBy: 'system',
+      cancelReason: 'Payment not received in time',
+    })
+    .where(
+      and(
+        eq(bookings.status, 'pending'),
+        eq(bookings.paymentStatus, 'unpaid'),
+        gt(bookings.amount, 0),
+        lt(
+          bookings.createdAt,
+          new Date(Date.now() - PAYMENT_HOLD_MINUTES * 60_000),
+        ),
+      ),
+    )
+    .returning({ id: bookings.id });
+
+  if (expired.length === 0) return 0;
+
+  await db.delete(bookingResources).where(
+    inArray(
+      bookingResources.bookingId,
+      expired.map((row) => row.id),
+    ),
+  );
+  return expired.length;
+}
+
+/**
  * Every piece of court held over the range, with the option holding it so the
  * screens can say what is in the way.
  */
@@ -66,6 +111,8 @@ export async function getHeldResources(
   from: DateStr,
   to: DateStr,
 ): Promise<HeldResource[]> {
+  await releaseExpiredHolds();
+
   const rows = await db
     .select({
       date: bookingResources.bookingDate,
@@ -638,6 +685,10 @@ export async function getBookingByCode(
 export async function getBookingGroup(
   code: string,
 ): Promise<BookingWithUnit[]> {
+  // Sweep first so an unpaid request that ran out of time reads as cancelled
+  // here too, not just on the screens that ask what is held.
+  await releaseExpiredHolds();
+
   const first = await getBookingByCode(code);
   if (!first) return [];
   if (!first.groupCode) return [first];

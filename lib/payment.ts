@@ -31,6 +31,16 @@ export function isPaymentConfigured(payment: PaymentConfig): boolean {
   return payment.gcashNumber.trim() !== '';
 }
 
+/**
+ * How long a paid request keeps its slot while the booker pays.
+ *
+ * Without a limit, an abandoned request holds a court indefinitely and the
+ * association has to notice and decline it by hand. Free bookings are not on a
+ * clock — there is nothing to wait for — and neither is a request whose receipt
+ * has already been sent.
+ */
+export const PAYMENT_HOLD_MINUTES = 15;
+
 export const MAX_PROOF_BYTES = 2 * 1024 * 1024;
 
 export const ACCEPTED_PROOF_TYPES = [

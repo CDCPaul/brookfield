@@ -21,7 +21,9 @@ import {
   getBookingGroup,
   getPendingBookings,
   rejectBooking,
+  releaseExpiredHolds,
 } from '../lib/queries/bookings';
+import { PAYMENT_HOLD_MINUTES } from '../lib/payment';
 import { saveCourts } from '../lib/queries/settings';
 import { addDays, manilaNow } from '../lib/time';
 import { buildUnitKey } from '../lib/unit-key';
@@ -353,6 +355,67 @@ async function main() {
       'and leaves nothing behind',
       slot?.options.find((o) => o.option.key === 'pb1')?.status === 'open',
       slot?.options.find((o) => o.option.key === 'pb1')?.status,
+    );
+  }
+
+  console.log('\nUnpaid holds expire\n');
+
+  const holdSlot = NIGHT_SLOT + 4;
+  const stale = await createRequest({
+    bookerType: 'guest',
+    date: target,
+    picks: [{ slotIndex: holdSlot, optionKey: 'pb1' }],
+    name: 'Smoke Hold',
+    phone: GUEST_PHONE,
+  });
+  check('a paid request holds its court', stale.ok, stale.ok ? '' : stale.message);
+
+  if (stale.ok) {
+    const blockedWhileHeld = await createRequest({
+      bookerType: 'guest',
+      date: target,
+      picks: [{ slotIndex: holdSlot, optionKey: 'pb1' }],
+      name: 'Smoke Other',
+      phone: PHONE_A,
+    });
+    check(
+      'nobody else can take it while the hold stands',
+      !blockedWhileHeld.ok && blockedWhileHeld.code === 'taken',
+      blockedWhileHeld.ok ? 'was accepted' : blockedWhileHeld.code,
+    );
+
+    // Age the request past the payment window.
+    await db
+      .update(bookings)
+      .set({
+        createdAt: new Date(Date.now() - (PAYMENT_HOLD_MINUTES + 1) * 60_000),
+      })
+      .where(eq(bookings.id, stale.bookings[0].id));
+
+    const released = await releaseExpiredHolds();
+    check('the sweep releases it', released >= 1, `${released} released`);
+
+    const rebooked = await createRequest({
+      bookerType: 'guest',
+      date: target,
+      picks: [{ slotIndex: holdSlot, optionKey: 'pb1' }],
+      name: 'Smoke Other',
+      phone: PHONE_A,
+    });
+    check(
+      'and the court can be booked again',
+      rebooked.ok,
+      rebooked.ok ? '' : rebooked.message,
+    );
+
+    const [after] = await db
+      .select({ status: bookings.status, by: bookings.cancelledBy })
+      .from(bookings)
+      .where(eq(bookings.id, stale.bookings[0].id));
+    check(
+      'the expired request is recorded as cancelled by the system',
+      after?.status === 'cancelled' && after.by === 'system',
+      `${after?.status}/${after?.by}`,
     );
   }
 
