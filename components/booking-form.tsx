@@ -25,19 +25,20 @@ import {
  * into the DOM after mount, because rendering them as React state would
  * mismatch during hydration (the server cannot see localStorage).
  */
+export type FormPick = { slotIndex: number; optionKey: string };
+
 export function BookingForm({
   date,
-  slotIndex,
-  optionKey,
-  price,
+  picks,
+  total,
   freeUntilHour,
 }: {
   date: string;
-  slotIndex: number;
-  optionKey: string;
-  price: number;
+  picks: FormPick[];
+  total: number;
   freeUntilHour: number;
 }) {
+  const price = total;
   const [bookerType, setBookerType] = useState<BookerType | null>(null);
   const remembered = useRememberedBookerType();
 
@@ -56,8 +57,7 @@ export function BookingForm({
   return (
     <DetailsStep
       date={date}
-      slotIndex={slotIndex}
-      optionKey={optionKey}
+      picks={picks}
       bookerType={bookerType}
       // The address rations free court time. Paid hours are not rationed, so
       // asking for it would be collecting something nothing uses.
@@ -152,15 +152,13 @@ function BookerTypeStep({
 
 function DetailsStep({
   date,
-  slotIndex,
-  optionKey,
+  picks,
   bookerType,
   needsAddress,
   onBack,
 }: {
   date: string;
-  slotIndex: number;
-  optionKey: string;
+  picks: FormPick[];
   bookerType: BookerType;
   needsAddress: boolean;
   onBack: () => void;
@@ -210,8 +208,13 @@ function DetailsStep({
       className="space-y-4"
     >
       <input type="hidden" name="date" value={date} />
-      <input type="hidden" name="slot" value={slotIndex} />
-      <input type="hidden" name="option" value={optionKey} />
+      <input
+        type="hidden"
+        name="picks"
+        value={picks
+          .map((pick) => `${pick.slotIndex}:${pick.optionKey}`)
+          .join(',')}
+      />
       <input type="hidden" name="bookerType" value={bookerType} />
 
       <div className="flex items-center justify-between rounded-xl border border-edge bg-surface px-3.5 py-2.5">

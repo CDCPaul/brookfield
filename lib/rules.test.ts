@@ -44,6 +44,7 @@ function held(
     slotIndex,
     resourceKey,
     optionKey,
+    bookerName: 'Ana Cruz',
   }));
 }
 
@@ -557,6 +558,9 @@ describe('computeDayAvailability', () => {
     const slot = findSlotAvailability(day, DAY_SLOT);
     expect(slot?.options[0].status).toBe('taken');
     expect(slot?.options[0].reason).toContain('Pickleball court 2');
+    // Naming the holder shows the court is genuinely spoken for.
+    expect(slot?.options[0].reason).toContain('Ana Cruz');
+    expect(slot?.options[0].heldBy).toBe('Ana Cruz');
   });
 
   it('marks slots that have already started as past', () => {

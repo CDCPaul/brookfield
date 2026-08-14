@@ -42,6 +42,11 @@ export const bookings = pgTable(
     id: serial('id').primaryKey(),
     /** Six-character reference shown to the resident. */
     code: text('code').notNull(),
+    /**
+     * Shared by slots requested together, so several hours are paid for and
+     * decided as one. Equal to the first booking's code.
+     */
+    groupCode: text('group_code'),
     /** Civil date in Manila, 'YYYY-MM-DD'. */
     bookingDate: date('booking_date', { mode: 'string' }).notNull(),
     slotIndex: smallint('slot_index').notNull(),
@@ -88,6 +93,7 @@ export const bookings = pgTable(
   (table) => [
     uniqueIndex('bookings_code_idx').on(table.code),
     index('bookings_status_idx').on(table.status),
+    index('bookings_group_idx').on(table.groupCode),
     index('bookings_date_idx').on(table.bookingDate),
     index('bookings_unit_idx').on(table.unitId),
     // Guests are identified by phone, and residents can look themselves up

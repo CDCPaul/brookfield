@@ -21,11 +21,12 @@ type Status =
  * report upload progress.
  */
 export function PaymentProofUpload({
-  bookingId,
+  bookingIds,
   owner,
   existingUrl,
 }: {
-  bookingId: number;
+  /** Every slot the receipt covers — hours booked together are paid as one. */
+  bookingIds: number[];
   owner: string;
   existingUrl: string | null;
 }) {
@@ -52,7 +53,7 @@ export function PaymentProofUpload({
 
     const compressed = await compressImage(file);
     const body = new FormData();
-    body.set('bookingId', String(bookingId));
+    body.set('bookingIds', bookingIds.join(','));
     body.set('owner', owner);
     body.set('file', compressed);
 

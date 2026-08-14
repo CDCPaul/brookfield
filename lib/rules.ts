@@ -73,6 +73,8 @@ export type HeldResource = {
   resourceKey: ResourceKey;
   /** Which option holds it, so the UI can say why something is blocked. */
   optionKey: string;
+  /** Who holds it. Shown so people can see the court is genuinely spoken for. */
+  bookerName: string;
 };
 
 export type BookerState = {
@@ -298,8 +300,9 @@ export function findBlocker(
 /** Plain-language reason a court is unavailable, naming what is in the way. */
 export function describeBlocker(blocker: HeldResource): string {
   const holder = findOption(blocker.optionKey);
-  if (!holder) return 'This court is already booked.';
-  return `${holder.label} is booked this hour.`;
+  const who = blocker.bookerName ? ` by ${blocker.bookerName}` : '';
+  if (!holder) return `This court is already booked${who}.`;
+  return `${holder.label} is booked${who} this hour.`;
 }
 
 function formatHour(hour: number): string {
@@ -316,6 +319,8 @@ export type OptionAvailability = {
   price: number;
   /** Why it is unavailable, when it is. */
   reason?: string;
+  /** Who holds it, when it is taken. */
+  heldBy?: string;
 };
 
 export type SlotAvailability = {
@@ -401,6 +406,7 @@ export function computeDayAvailability(
           status: 'taken',
           price,
           reason: describeBlocker(blocker),
+          heldBy: blocker.bookerName || undefined,
         };
       }
 

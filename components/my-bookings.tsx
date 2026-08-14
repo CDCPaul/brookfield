@@ -257,7 +257,7 @@ function BookingCard({
           />
           {uploadEnabled ? (
             <PaymentProofUpload
-              bookingId={booking.id}
+              bookingIds={[booking.id]}
               owner={owner}
               existingUrl={booking.paymentProofUrl}
             />

@@ -19,11 +19,14 @@ export async function POST(request: Request) {
 
   const formData = await request.formData();
 
-  const bookingId = Number(formData.get('bookingId'));
+  const bookingIds = String(formData.get('bookingIds') ?? '')
+    .split(',')
+    .map(Number)
+    .filter(Number.isInteger);
   const owner = decodeOwner(String(formData.get('owner') ?? ''));
   const file = formData.get('file');
 
-  if (!Number.isInteger(bookingId) || !owner) {
+  if (bookingIds.length === 0 || !owner) {
     return fail('Could not identify that booking.', 400);
   }
   if (!(file instanceof File)) {
@@ -37,15 +40,16 @@ export async function POST(request: Request) {
   }
 
   // Random suffix so the URL cannot be guessed from the booking id.
-  const blob = await put(`payment-proof/${bookingId}`, file, {
+  const blob = await put(`payment-proof/${bookingIds[0]}`, file, {
     access: 'public',
     addRandomSuffix: true,
     contentType: file.type,
   });
 
-  const result = await attachPaymentProof(bookingId, owner, blob.url);
-  if (!result.ok) {
-    return fail(result.message, 400);
+  // One receipt covers every hour booked together.
+  for (const bookingId of bookingIds) {
+    const result = await attachPaymentProof(bookingId, owner, blob.url);
+    if (!result.ok) return fail(result.message, 400);
   }
 
   return NextResponse.json({ url: blob.url });

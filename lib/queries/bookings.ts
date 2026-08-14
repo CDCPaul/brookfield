@@ -24,7 +24,11 @@ import {
   type RejectionCode,
   checkBooking,
 } from '@/lib/rules';
-import { findOption, priceForOption } from '@/lib/courts';
+import {
+  type CourtOption,
+  findOption,
+  priceForOption,
+} from '@/lib/courts';
 import {
   isValidSlotIndex,
   sportForDate,
@@ -71,6 +75,7 @@ export async function getHeldResources(
       slotIndex: bookingResources.slotIndex,
       resourceKey: bookingResources.resourceKey,
       optionKey: bookings.courtOption,
+      bookerName: bookings.bookerName,
     })
     .from(bookingResources)
     .innerJoin(bookings, eq(bookingResources.bookingId, bookings.id))
@@ -129,6 +134,9 @@ export async function getBookerState(
   return { isBlocked: unit.isBlocked, bookings: toState(rows) };
 }
 
+/** One slot in a request. Several may be asked for together. */
+export type Pick = { slotIndex: number; optionKey: string };
+
 export type CreateBookingInput = {
   date: DateStr;
   slotIndex: number;
@@ -142,11 +150,16 @@ export type CreateBookingInput = {
   lot?: string;
 };
 
-export type CreateBookingResult =
-  | { ok: true; booking: Booking }
-  | { ok: false; code: RejectionCode | 'invalid_input'; message: string };
+/** Shared failure shape, so single and multi-slot requests reject alike. */
+export type BookingFailure = {
+  ok: false;
+  code: RejectionCode | 'invalid_input';
+  message: string;
+};
 
-function invalid(message: string): CreateBookingResult {
+export type CreateBookingResult = { ok: true; booking: Booking } | BookingFailure;
+
+function invalid(message: string): BookingFailure {
   return { ok: false, code: 'invalid_input', message };
 }
 
@@ -242,6 +255,46 @@ export async function createBooking(
   const unit = hasUnit ? await findOrCreateUnit(unitInput) : null;
   const booked = verdict.option;
 
+  const created = await insertBooking({
+    date: input.date,
+    slotIndex: input.slotIndex,
+    sport,
+    option: booked,
+    bookerType: input.bookerType,
+    tier: verdict.tier,
+    price: verdict.price,
+    unitId: unit?.id ?? null,
+    name,
+    phone: normalizePhone(input.phone),
+  });
+
+  if (!created.ok) return created.error;
+  return { ok: true, booking: created.booking };
+}
+
+type InsertInput = {
+  date: DateStr;
+  slotIndex: number;
+  sport: string;
+  option: CourtOption;
+  bookerType: BookerType;
+  tier: string;
+  price: number;
+  unitId: number | null;
+  name: string;
+  phone: string;
+};
+
+/**
+ * Writes one booking and claims its resources.
+ *
+ * The two are inseparable: without the resource rows nothing holds the slot,
+ * so a failure to claim them removes the booking rather than leaving one that
+ * looks confirmed but blocks nobody.
+ */
+async function insertBooking(
+  input: InsertInput,
+): Promise<{ ok: true; booking: Booking } | { ok: false; error: BookingFailure }> {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     let created: Booking;
     try {
@@ -251,16 +304,16 @@ export async function createBooking(
           code: generateBookingCode(),
           bookingDate: input.date,
           slotIndex: input.slotIndex,
-          sport,
-          courtOption: booked.key,
-          courtNo: legacyCourtNo(booked.key),
+          sport: input.sport,
+          courtOption: input.option.key,
+          courtNo: legacyCourtNo(input.option.key),
           bookerType: input.bookerType,
-          tier: verdict.tier,
-          amount: verdict.price,
-          paymentStatus: verdict.price > 0 ? 'unpaid' : 'none',
-          unitId: unit?.id ?? null,
-          bookerName: name,
-          phone: normalizePhone(input.phone),
+          tier: input.tier,
+          amount: input.price,
+          paymentStatus: input.price > 0 ? 'unpaid' : 'none',
+          unitId: input.unitId,
+          bookerName: input.name,
+          phone: input.phone,
           status: 'pending',
         })
         .returning();
@@ -271,12 +324,9 @@ export async function createBooking(
       throw error;
     }
 
-    // Claiming the physical resources is what actually holds the slot, and the
-    // unique index on them is the real guard against two people tapping the
-    // same court at the same moment.
     try {
       await db.insert(bookingResources).values(
-        booked.resources.map((resourceKey) => ({
+        input.option.resources.map((resourceKey) => ({
           bookingId: created.id,
           bookingDate: input.date,
           slotIndex: input.slotIndex,
@@ -289,15 +339,182 @@ export async function createBooking(
       if (isUniqueViolation(error, 'booking_resources_slot_idx')) {
         return {
           ok: false,
-          code: 'taken',
-          message: 'Someone just booked this court. Please pick another.',
+          error: {
+            ok: false,
+            code: 'taken',
+            message: 'Someone just booked this court. Please pick another.',
+          },
         };
       }
       throw error;
     }
   }
 
-  return invalid('Could not create the booking. Please try again.');
+  return {
+    ok: false,
+    error: invalid('Could not create the booking. Please try again.'),
+  };
+}
+
+export type CreateRequestInput = Omit<
+  CreateBookingInput,
+  'slotIndex' | 'optionKey'
+> & { picks: Pick[] };
+
+export type CreateRequestResult =
+  | { ok: true; bookings: Booking[]; groupCode: string; total: number }
+  | BookingFailure;
+
+/**
+ * Requests several slots at once, as one thing to pay for and one thing to
+ * decide on.
+ *
+ * Every pick is checked against the ones already accepted in the same request,
+ * so asking for tennis and a pickleball court in the same hour fails rather
+ * than half-succeeding. If any pick cannot be had, none are kept.
+ */
+export async function createRequest(
+  input: CreateRequestInput,
+  now: Date = new Date(),
+): Promise<CreateRequestResult> {
+  if (input.picks.length === 0) return invalid('Please choose a time.');
+  if (input.picks.length > 8) {
+    return invalid('You can request at most 8 hours at a time.');
+  }
+  if (!isValidDateStr(input.date)) return invalid('Please choose a date.');
+
+  const name = input.name.trim();
+  if (name.length < 2) return invalid('Please enter your full name.');
+  if (!isValidPhilippineMobile(input.phone)) {
+    return invalid('Please enter a valid mobile number, e.g. 0917 123 4567.');
+  }
+
+  const sport = sportForDate(input.date);
+  const moment = manilaNow(now);
+  const { limits, schedule, pricing, courts } = await getSettings();
+
+  const unitInput: UnitInput = {
+    phase: input.phase ?? '',
+    block: input.block ?? '',
+    lot: input.lot ?? '',
+  };
+
+  const anyFree = input.picks.some((pick) => {
+    const option = findOption(pick.optionKey);
+    const tier = tierForSlot(pick.slotIndex, schedule);
+    return option && tier && priceForOption(option, tier, pricing) === 0;
+  });
+
+  if (anyFree && input.bookerType === 'resident' && !isCompleteUnit(unitInput)) {
+    return invalid('Please fill in your phase, block and lot.');
+  }
+
+  const hasUnit = isCompleteUnit(unitInput);
+  const owner: Owner = hasUnit ? unitOwner(unitInput) : phoneOwner(input.phone);
+
+  const [closures, storedHeld, bookerState] = await Promise.all([
+    getClosures(input.date, input.date),
+    getHeldResources(input.date, input.date),
+    getBookerState(owner, moment.date, limits.advanceDays),
+  ]);
+
+  // Grows as picks are accepted, so the request cannot conflict with itself or
+  // exceed the free allowance across its own slots.
+  const held = [...storedHeld];
+  const booker: BookerState = {
+    isBlocked: bookerState.isBlocked,
+    bookings: [...bookerState.bookings],
+  };
+  const accepted: { pick: Pick; option: CourtOption; tier: string; price: number }[] =
+    [];
+
+  for (const pick of input.picks) {
+    const verdict = checkBooking({
+      date: input.date,
+      slotIndex: pick.slotIndex,
+      optionKey: pick.optionKey,
+      bookerType: input.bookerType,
+      now: moment,
+      limits,
+      schedule,
+      pricing,
+      courts,
+      closures,
+      held,
+      booker,
+    });
+
+    if (!verdict.ok) {
+      return { ok: false, code: verdict.code, message: verdict.message };
+    }
+
+    accepted.push({
+      pick,
+      option: verdict.option,
+      tier: verdict.tier,
+      price: verdict.price,
+    });
+    held.push(
+      ...verdict.option.resources.map((resourceKey) => ({
+        date: input.date,
+        slotIndex: pick.slotIndex,
+        resourceKey,
+        optionKey: verdict.option.key,
+        bookerName: name,
+      })),
+    );
+    booker.bookings.push({
+      date: input.date,
+      isFree: verdict.price === 0,
+    });
+  }
+
+  const unit = hasUnit ? await findOrCreateUnit(unitInput) : null;
+  const phone = normalizePhone(input.phone);
+  const madeSoFar: Booking[] = [];
+
+  for (const entry of accepted) {
+    const created = await insertBooking({
+      date: input.date,
+      slotIndex: entry.pick.slotIndex,
+      sport,
+      option: entry.option,
+      bookerType: input.bookerType,
+      tier: entry.tier,
+      price: entry.price,
+      unitId: unit?.id ?? null,
+      name,
+      phone,
+    });
+
+    if (!created.ok) {
+      // All or nothing: a half-made request would charge for hours the booker
+      // did not get.
+      for (const made of madeSoFar) {
+        await db.delete(bookings).where(eq(bookings.id, made.id));
+      }
+      return created.error;
+    }
+    madeSoFar.push(created.booking);
+  }
+
+  const groupCode = madeSoFar[0].code;
+  await db
+    .update(bookings)
+    .set({ groupCode })
+    .where(
+      inArray(
+        bookings.id,
+        madeSoFar.map((entry) => entry.id),
+      ),
+    );
+
+  return {
+    ok: true,
+    bookings: madeSoFar.map((entry) => ({ ...entry, groupCode })),
+    groupCode,
+    total: madeSoFar.reduce((sum, entry) => sum + entry.amount, 0),
+  };
 }
 
 /** Display-only number kept for the CSV export and older rows. */
@@ -326,6 +543,7 @@ export type BookingWithUnit = Booking & {
 const bookingWithUnitColumns = {
   id: bookings.id,
   code: bookings.code,
+  groupCode: bookings.groupCode,
   bookingDate: bookings.bookingDate,
   slotIndex: bookings.slotIndex,
   sport: bookings.sport,
@@ -411,6 +629,24 @@ export async function getBookingByCode(
 ): Promise<BookingWithUnit | null> {
   const [row] = await selectBookings().where(eq(bookings.code, code)).limit(1);
   return row ?? null;
+}
+
+/**
+ * Every slot requested together with this one, in time order.
+ *
+ * A request for three hours is three bookings sharing a group code; the payer
+ * sees them as one thing to settle.
+ */
+export async function getBookingGroup(
+  code: string,
+): Promise<BookingWithUnit[]> {
+  const first = await getBookingByCode(code);
+  if (!first) return [];
+  if (!first.groupCode) return [first];
+
+  return selectBookings()
+    .where(eq(bookings.groupCode, first.groupCode))
+    .orderBy(asc(bookings.bookingDate), asc(bookings.slotIndex));
 }
 
 export type MutationResult = { ok: true } | { ok: false; message: string };

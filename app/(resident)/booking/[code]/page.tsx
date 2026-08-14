@@ -1,16 +1,16 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
-import { bookerLabel } from '@/components/booker-label';
+import { bookerLabel, courtLabel } from '@/components/booker-label';
 import { PaymentBadge, StatusBadge } from '@/components/booking-status';
 import { PaymentInstructions } from '@/components/payment-instructions';
 import { PaymentProofUpload } from '@/components/payment-proof-upload';
-import { Card, Notice, PrimaryLink, SportBadge } from '@/components/ui';
+import { Card, Notice, PrimaryLink } from '@/components/ui';
 import { isValidBookingCode, normalizeBookingCode } from '@/lib/booking-code';
 import { encodeOwner, phoneOwner, type Owner } from '@/lib/owner';
 import { isPaymentConfigured } from '@/lib/payment';
 import { isBlobConfigured } from '@/lib/payment-proof';
-import { getBookingByCode, type BookingWithUnit } from '@/lib/queries/bookings';
+import { getBookingGroup, type BookingWithUnit } from '@/lib/queries/bookings';
 import { getSettings } from '@/lib/queries/settings';
 import { formatPeso, getSlot } from '@/lib/schedule';
 import { formatLongDate } from '@/lib/time';
@@ -33,75 +33,82 @@ export default async function BookingPage({
   const { code } = await params;
   if (!isValidBookingCode(code)) notFound();
 
-  const booking = await getBookingByCode(normalizeBookingCode(code));
-  if (!booking) notFound();
+  const group = await getBookingGroup(normalizeBookingCode(code));
+  if (group.length === 0) notFound();
 
+  const first = group[0];
   const { payment } = await getSettings();
-  const slot = getSlot(booking.slotIndex);
 
-  const owes = booking.amount > 0 && booking.paymentStatus !== 'paid';
-  const awaitingCheck = booking.paymentStatus === 'submitted';
-  const owner = encodeOwner(ownerFor(booking));
+  const total = group.reduce((sum, entry) => sum + entry.amount, 0);
+  const unpaid = group.filter(
+    (entry) => entry.amount > 0 && entry.paymentStatus !== 'paid',
+  );
+  const owes = unpaid.length > 0;
+  const awaitingCheck = unpaid.every(
+    (entry) => entry.paymentStatus === 'submitted',
+  );
+  const owner = encodeOwner(ownerFor(first));
 
   return (
     <div className="space-y-5">
       <section className="text-center">
         <h1 className="text-2xl font-bold tracking-tight">
-          {headline(booking, owes, awaitingCheck)}
+          {headline(first, owes, owes && awaitingCheck)}
         </h1>
         <p className="mt-2">
-          <StatusBadge status={booking.status} />
+          <StatusBadge status={first.status} />
         </p>
         <p className="mt-2 text-sm text-muted">
-          {subtitle(booking, owes, awaitingCheck)}
+          {subtitle(first, owes, owes && awaitingCheck)}
         </p>
       </section>
 
       <section className="rounded-2xl border border-edge bg-surface p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-lg font-semibold">
-              {formatLongDate(booking.bookingDate)}
-            </p>
-            <p className="text-sm text-muted">{slot.label}</p>
-          </div>
-          <SportBadge sport={booking.sport as 'tennis' | 'pickleball'} />
-        </div>
+        <p className="text-lg font-semibold">
+          {formatLongDate(first.bookingDate)}
+        </p>
 
-        <dl className="mt-4 space-y-2 border-t border-edge pt-4 text-sm">
+        <ul className="mt-3 space-y-2 border-t border-edge pt-3 text-sm">
+          {group.map((entry) => (
+            <li
+              key={entry.id}
+              className="flex items-baseline justify-between gap-3"
+            >
+              <span>
+                {getSlot(entry.slotIndex).label} · {courtLabel(entry)}
+              </span>
+              <span className="shrink-0 font-medium">
+                {entry.amount > 0 ? formatPeso(entry.amount) : 'Free'}
+              </span>
+            </li>
+          ))}
+        </ul>
+
+        <dl className="mt-3 space-y-2 border-t border-edge pt-3 text-sm">
+          <Row label="Name" value={first.bookerName} />
           <Row
-            label="Court"
-            value={
-              booking.sport === 'tennis'
-                ? 'Tennis court'
-                : `Court ${booking.courtNo}`
-            }
+            label={first.bookerType === 'resident' ? 'Unit' : 'Booked as'}
+            value={bookerLabel(first) ?? 'Guest'}
           />
-          <Row label="Name" value={booking.bookerName} />
-          <Row
-            label={booking.bookerType === 'resident' ? 'Unit' : 'Booked as'}
-            value={bookerLabel(booking) ?? 'Guest'}
-          />
-          <Row label="Mobile" value={booking.phone} />
-          <Row
-            label="Price"
-            value={booking.amount > 0 ? formatPeso(booking.amount) : 'Free'}
-          />
-          <Row label="Reference" value={booking.code} mono />
+          <Row label="Mobile" value={first.phone} />
+          <Row label="Reference" value={first.code} mono />
+          {total > 0 ? (
+            <Row label="Total" value={formatPeso(total)} strong />
+          ) : null}
         </dl>
 
-        {booking.amount > 0 ? (
+        {total > 0 ? (
           <p className="mt-3 border-t border-edge pt-3">
             <PaymentBadge
-              paymentStatus={booking.paymentStatus}
-              amount={booking.amount}
+              paymentStatus={first.paymentStatus}
+              amount={total}
             />
           </p>
         ) : null}
 
-        {booking.decisionNote ? (
+        {first.decisionNote ? (
           <p className="mt-3 border-t border-edge pt-3 text-sm text-muted">
-            Association note: {booking.decisionNote}
+            Association note: {first.decisionNote}
           </p>
         ) : null}
       </section>
@@ -111,16 +118,16 @@ export default async function BookingPage({
           <>
             <PaymentInstructions
               payment={payment}
-              amount={booking.amount}
-              code={booking.code}
+              amount={total}
+              code={first.code}
             />
 
             <Card>
               {isBlobConfigured() ? (
                 <PaymentProofUpload
-                  bookingId={booking.id}
+                  bookingIds={group.map((entry) => entry.id)}
                   owner={owner}
-                  existingUrl={booking.paymentProofUrl}
+                  existingUrl={first.paymentProofUrl}
                 />
               ) : (
                 <p className="text-sm text-muted">
@@ -132,16 +139,13 @@ export default async function BookingPage({
           </>
         ) : (
           <Notice>
-            The association will contact you about paying{' '}
-            {formatPeso(booking.amount)}.
+            The association will contact you about paying {formatPeso(total)}.
           </Notice>
         )
       ) : null}
 
-      {booking.amount > 0 && booking.paymentStatus === 'paid' ? (
-        <Notice tone="success">
-          Payment received. Nothing more to do.
-        </Notice>
+      {total > 0 && !owes ? (
+        <Notice tone="success">Payment received. Nothing more to do.</Notice>
       ) : null}
 
       <div className="space-y-2">
@@ -184,7 +188,7 @@ function subtitle(
     return 'We have your receipt. The association will confirm the booking shortly.';
   }
   if (owes) {
-    return 'Your slot is held while you pay. Send the fee, then upload the GCash receipt below.';
+    return 'Your slots are held while you pay. Send the fee, then upload the GCash receipt below.';
   }
   return 'The association will review it shortly.';
 }
@@ -193,16 +197,20 @@ function Row({
   label,
   value,
   mono = false,
+  strong = false,
 }: {
   label: string;
   value: string;
   mono?: boolean;
+  strong?: boolean;
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
       <dt className="text-muted">{label}</dt>
       <dd
-        className={`text-right font-medium ${mono ? 'font-mono tracking-widest' : ''}`}
+        className={`text-right ${mono ? 'font-mono tracking-widest' : ''} ${
+          strong ? 'text-base font-bold' : 'font-medium'
+        }`}
       >
         {value}
       </dd>

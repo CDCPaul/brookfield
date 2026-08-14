@@ -13,7 +13,7 @@ import {
 } from '@/lib/owner';
 import {
   cancelBookingAsOwner,
-  createBooking,
+  createRequest,
   getUpcomingBookingsForOwner,
   type BookingWithUnit,
 } from '@/lib/queries/bookings';
@@ -36,10 +36,17 @@ export async function createBookingAction(
     return { error: 'Please choose whether you are a resident or a guest.' };
   }
 
-  const result = await createBooking({
+  const picks = text(formData, 'picks')
+    .split(',')
+    .filter(Boolean)
+    .map((entry) => {
+      const [slot, optionKey] = entry.split(':');
+      return { slotIndex: Number(slot), optionKey: optionKey ?? '' };
+    });
+
+  const result = await createRequest({
     date: text(formData, 'date'),
-    slotIndex: Number(formData.get('slot')),
-    optionKey: text(formData, 'option'),
+    picks,
     bookerType,
     phase: text(formData, 'phase'),
     block: text(formData, 'block'),
@@ -54,7 +61,7 @@ export async function createBookingAction(
 
   revalidatePath('/');
   revalidatePath('/book');
-  redirect(`/booking/${result.booking.code}`);
+  redirect(`/booking/${result.groupCode}`);
 }
 
 export type LookupState = {

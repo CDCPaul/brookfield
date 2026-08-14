@@ -3,44 +3,73 @@ import { notFound } from 'next/navigation';
 
 import { BookingForm } from '@/components/booking-form';
 import { Notice } from '@/components/ui';
-import { activityLabel, findOption } from '@/lib/courts';
+import { type CourtOption, activityLabel, findOption } from '@/lib/courts';
 import { getDayAvailability } from '@/lib/queries/availability';
 import { getSettings } from '@/lib/queries/settings';
-import { findSlotAvailability } from '@/lib/rules';
-import { formatPeso, getSlot, isValidSlotIndex, tierLabel } from '@/lib/schedule';
+import { findSlotAvailability, type DayAvailability } from '@/lib/rules';
+import { formatPeso, getSlot, isValidSlotIndex } from '@/lib/schedule';
 import { formatLongDate, isValidDateStr } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
+type Pick = { slotIndex: number; option: CourtOption };
+
+/** 'picks' is a comma-separated list of slotIndex:optionKey. */
+function parsePicks(raw: string | undefined): Pick[] {
+  if (!raw) return [];
+  const seen = new Set<string>();
+  const picks: Pick[] = [];
+
+  for (const entry of raw.split(',')) {
+    if (seen.has(entry)) continue;
+    seen.add(entry);
+
+    const [rawSlot, optionKey] = entry.split(':');
+    const slotIndex = Number(rawSlot);
+    const option = findOption(optionKey ?? '');
+    if (!isValidSlotIndex(slotIndex) || !option) return [];
+    picks.push({ slotIndex, option });
+  }
+
+  return picks.sort((a, b) => a.slotIndex - b.slotIndex);
+}
+
+function statusOf(day: DayAvailability, pick: Pick) {
+  const slot = findSlotAvailability(day, pick.slotIndex);
+  return slot?.options.find((entry) => entry.option.key === pick.option.key);
+}
+
 export default async function ConfirmPage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string; slot?: string; option?: string }>;
+  searchParams: Promise<{ date?: string; picks?: string }>;
 }) {
   const params = await searchParams;
   const date = params.date ?? '';
-  const slotIndex = Number(params.slot);
-  const option = findOption(params.option ?? '');
+  const picks = parsePicks(params.picks);
 
-  if (!isValidDateStr(date) || !isValidSlotIndex(slotIndex) || !option) {
-    notFound();
-  }
+  if (!isValidDateStr(date) || picks.length === 0) notFound();
 
-  const slot = getSlot(slotIndex);
+  const activity = picks[0].option.activity;
   const now = new Date();
   const [day, { limits, schedule }] = await Promise.all([
-    getDayAvailability(date, option.activity, now),
+    getDayAvailability(date, undefined, now),
     getSettings(),
   ]);
 
-  const availability = findSlotAvailability(day, slotIndex);
-  const entry = availability?.options.find(
-    (candidate) => candidate.option.key === option.key,
+  const entries = picks.map((pick) => ({
+    pick,
+    availability: statusOf(day, pick),
+  }));
+
+  const unavailable = entries.filter(
+    (entry) => entry.availability?.status !== 'open',
   );
-  const stillOpen = entry?.status === 'open';
-  const price = entry?.price ?? 0;
-  const tier = availability?.tier ?? 'free';
-  const backHref = `/book?date=${date}&sport=${option.activity}`;
+  const total = entries.reduce(
+    (sum, entry) => sum + (entry.availability?.price ?? 0),
+    0,
+  );
+  const backHref = `/book?date=${date}&sport=${activity}`;
 
   return (
     <div className="space-y-5">
@@ -49,27 +78,54 @@ export default async function ConfirmPage({
           ← Back to slots
         </Link>
         <h1 className="mt-2 text-2xl font-bold tracking-tight">
-          Request a booking
+          Request {picks.length === 1 ? 'a booking' : `${picks.length} hours`}
         </h1>
       </section>
 
       <section className="rounded-2xl border border-edge bg-surface p-4">
         <p className="text-base font-semibold">{formatLongDate(date)}</p>
-        <p className="text-sm text-muted">{slot.label}</p>
-        <p className="mt-1 text-sm font-medium">{option.label}</p>
+
+        <ul className="mt-3 space-y-2 border-t border-edge pt-3 text-sm">
+          {entries.map(({ pick, availability }) => (
+            <li
+              key={`${pick.slotIndex}:${pick.option.key}`}
+              className="flex items-baseline justify-between gap-3"
+            >
+              <span
+                className={
+                  availability?.status === 'open' ? '' : 'text-muted line-through'
+                }
+              >
+                {getSlot(pick.slotIndex).label} · {pick.option.short}
+              </span>
+              <span className="shrink-0 font-medium">
+                {availability?.price ? formatPeso(availability.price) : 'Free'}
+              </span>
+            </li>
+          ))}
+        </ul>
 
         <div className="mt-3 flex items-center justify-between border-t border-edge pt-3">
           <span className="text-sm text-muted">
-            {activityLabel(option.activity)} · {tierLabel(tier)}
-            {tier === 'free' ? ' · residents only' : ''}
+            {activityLabel(activity)} · {picks.length} hour
+            {picks.length === 1 ? '' : 's'}
           </span>
           <span className="text-lg font-bold">
-            {price > 0 ? formatPeso(price) : 'Free'}
+            {total > 0 ? formatPeso(total) : 'Free'}
           </span>
         </div>
       </section>
 
-      {stillOpen ? (
+      {unavailable.length > 0 ? (
+        <Notice tone="error">
+          {unavailable[0].availability?.reason ??
+            'One of these courts is no longer available.'}{' '}
+          <Link href={backHref} className="underline">
+            Pick again
+          </Link>
+          .
+        </Notice>
+      ) : (
         <>
           <Notice>
             Every booking is a <strong>request</strong>. The association reviews
@@ -78,9 +134,11 @@ export default async function ConfirmPage({
 
           <BookingForm
             date={date}
-            slotIndex={slotIndex}
-            optionKey={option.key}
-            price={price}
+            picks={picks.map((pick) => ({
+              slotIndex: pick.slotIndex,
+              optionKey: pick.option.key,
+            }))}
+            total={total}
             freeUntilHour={schedule.freeUntilHour}
           />
 
@@ -90,14 +148,6 @@ export default async function ConfirmPage({
               : 'Please be considerate so everyone gets a turn.'}
           </p>
         </>
-      ) : (
-        <Notice tone="error">
-          {entry?.reason ?? 'This court is no longer available.'}{' '}
-          <Link href={backHref} className="underline">
-            Pick another slot
-          </Link>
-          .
-        </Notice>
       )}
     </div>
   );

@@ -16,6 +16,8 @@ import {
   approveBooking,
   cancelBookingAsOwner,
   createBooking,
+  createRequest,
+  getBookingGroup,
   getPendingBookings,
   rejectBooking,
 } from '../lib/queries/bookings';
@@ -89,7 +91,19 @@ async function main() {
   await saveCourts({ paidTennisEnabled: true, basketballEnabled: true });
 
   const today = manilaNow().date;
-  const target = addDays(today, 2);
+
+  // Run against a day nobody has booked, so real reservations neither break
+  // the checks nor get disturbed by them.
+  let target = addDays(today, 2);
+  for (let offset = 1; offset <= 7; offset += 1) {
+    const candidate = addDays(today, offset);
+    const day = await getDayAvailability(candidate);
+    if (day.capacity > 0 && day.openCount === day.capacity) {
+      target = candidate;
+      break;
+    }
+  }
+
   const freeOption = isTennisDay(target) ? 'tennis' : 'pb1';
 
   console.log(`\nTarget ${target} (free morning: ${freeOption})\n`);
@@ -262,6 +276,80 @@ async function main() {
     otherHalf.ok,
     !otherHalf.ok ? otherHalf.message : '',
   );
+
+  console.log('\nBooking several hours at once\n');
+
+  const many = await createRequest({
+    bookerType: 'guest',
+    date: target,
+    picks: [
+      { slotIndex: DAY_SLOT + 2, optionKey: 'pb1' },
+      { slotIndex: DAY_SLOT + 3, optionKey: 'pb1' },
+      { slotIndex: DAY_SLOT + 4, optionKey: 'pb1' },
+    ],
+    name: 'Smoke Multi',
+    phone: PHONE_A,
+  });
+  check(
+    'three hours can be requested together',
+    many.ok && many.bookings.length === 3,
+    many.ok ? `${many.bookings.length}` : many.message,
+  );
+  if (many.ok) {
+    check(
+      'they share a group and one total',
+      many.total === 600 &&
+        many.bookings.every((entry) => entry.groupCode === many.groupCode),
+      `total ${many.total}`,
+    );
+    check(
+      'the group reads back as one request',
+      (await getBookingGroup(many.groupCode)).length === 3,
+    );
+  }
+
+  const selfConflict = await createRequest({
+    bookerType: 'guest',
+    date: target,
+    picks: [
+      { slotIndex: NIGHT_SLOT + 1, optionKey: 'pb1' },
+      { slotIndex: NIGHT_SLOT + 1, optionKey: 'tennis' },
+    ],
+    name: 'Smoke Multi',
+    phone: PHONE_B,
+  });
+  check(
+    'a request cannot conflict with itself',
+    !selfConflict.ok && selfConflict.code === 'taken',
+    selfConflict.ok ? 'was accepted' : selfConflict.code,
+  );
+
+  const partial = await createRequest({
+    bookerType: 'guest',
+    date: target,
+    picks: [
+      { slotIndex: NIGHT_SLOT + 2, optionKey: 'pb1' },
+      { slotIndex: DAY_SLOT, optionKey: 'pb2' }, // already taken above
+    ],
+    name: 'Smoke Multi',
+    phone: PHONE_B,
+  });
+  check(
+    'one unavailable hour rejects the whole request',
+    !partial.ok,
+    partial.ok ? 'was accepted' : '',
+  );
+  if (!partial.ok) {
+    const leaked = await getDayAvailability(target);
+    const slot = leaked.groups
+      .flatMap((group) => group.slots)
+      .find((entry) => entry.slotIndex === NIGHT_SLOT + 2);
+    check(
+      'and leaves nothing behind',
+      slot?.options.find((o) => o.option.key === 'pb1')?.status === 'open',
+      slot?.options.find((o) => o.option.key === 'pb1')?.status,
+    );
+  }
 
   console.log('\nApproval\n');
 

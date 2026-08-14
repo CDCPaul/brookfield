@@ -1,5 +1,5 @@
-import { DateStrip } from '@/components/date-strip';
-import { SlotList } from '@/components/slot-list';
+﻿import { DateStrip } from '@/components/date-strip';
+import { SlotPicker } from '@/components/slot-picker';
 import { SportTabs } from '@/components/sport-tabs';
 import { Notice } from '@/components/ui';
 import { type Activity, isTennisDay } from '@/lib/courts';
@@ -83,7 +83,7 @@ export default async function BookPage({
         </Notice>
       ) : null}
 
-      <SlotList day={day} activity={activity} />
+      <SlotPicker day={day} activity={activity} />
     </div>
   );
 }
@@ -93,3 +93,4 @@ function formatHour(hour: number): string {
   const hour12 = hour % 12 === 0 ? 12 : hour % 12;
   return `${hour12}:00 ${suffix}`;
 }
+
