@@ -40,11 +40,22 @@ export async function POST(request: Request) {
   }
 
   // Random suffix so the URL cannot be guessed from the booking id.
-  const blob = await put(`payment-proof/${bookingIds[0]}`, file, {
-    access: 'public',
-    addRandomSuffix: true,
-    contentType: file.type,
-  });
+  let blob;
+  try {
+    blob = await put(`payment-proof/${bookingIds[0]}`, file, {
+      access: 'public',
+      addRandomSuffix: true,
+      contentType: file.type,
+    });
+  } catch (error) {
+    // Almost always a store that is not reachable from this deployment. Say so
+    // plainly — a generic failure here reads as "the app is broken".
+    console.error('Blob upload failed', error);
+    return fail(
+      'Could not store the screenshot. Please tell the association.',
+      502,
+    );
+  }
 
   // One receipt covers every hour booked together.
   for (const bookingId of bookingIds) {
