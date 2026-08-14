@@ -26,26 +26,38 @@ integration or merchant account is involved.
 
 ## Setup
 
+On a machine that has never had the project, the secrets come down from
+Vercel rather than being copied by hand:
+
 ```bash
 npm install
-```
-
-Create `.env.local`:
-
-```
-DATABASE_URL="postgresql://…-pooler….neon.tech/neondb?sslmode=require"
-ADMIN_PASSWORD="choose-something-long"
-AUTH_SECRET="32+ random characters"
-```
-
-Push the schema to the database, then start the dev server:
-
-```bash
-npm run db:push
+npx vercel login
+npx vercel link --yes --project brookfield
+npx vercel env pull .env.local
 npm run dev
 ```
 
+`env pull` writes the development environment, which carries everything except
+`BLOB_READ_WRITE_TOKEN` — receipt upload answers 503 locally and works on the
+deployment. Add that variable to Development too if you need to test uploading.
+
+Working from `.env.example` by hand is the fallback when there is no Vercel
+access. `AUTH_SECRET` wants 32+ random characters:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+```
+
+`npm run db:push` applies the schema, and is only needed after editing
+`lib/db/schema.ts`.
+
 The resident app is at `/`, the association console at `/admin`.
+
+> **There is one database, and the dev server talks to the live one.** Every
+> machine and the deployment share the same Neon instance, so a booking made
+> while testing is a booking residents can see, and `db:clear` and `db:push`
+> act on real data. Branch the database in Neon and point `DATABASE_URL` at the
+> branch before doing anything destructive with residents relying on it.
 
 ## Scripts
 
@@ -57,18 +69,20 @@ The resident app is at `/`, the association console at `/admin`.
 | `npm run lint` | ESLint |
 | `npm run build` | Production build |
 | `npm run db:push` | Apply `lib/db/schema.ts` to the database |
-| `npm run db:repair` | Rebuild the partial unique index (see below) |
 | `npm run db:clear -- --yes` | Wipe all bookings and units before go-live |
 | `npm run db:studio` | Drizzle Studio |
+| `npm run db:migrate-courts` | One-off: backfill `court_option` and `sport` on old rows |
+| `npm run db:migrate-bookers` | One-off: backfill booker details on old rows |
 | `npm run sms:test` | Preview the text messages and their credit cost |
 | `npm run sms:test -- 09171234567` | Send one real text (costs a credit) |
 | `npm run icons` | Rebuild the home-screen and notification icons from `public/icon.svg` |
 
-> **After every `db:push`, run `npm run smoke`.** `drizzle-kit push` does not
-> notice changes to the *predicate* of a partial index — it leaves the old
-> `WHERE` clause in place and still reports success. That silently disables the
-> double-booking guard. The smoke test asserts the predicate directly, and
-> `npm run db:repair` rebuilds it.
+> **After every `db:push`, run `npm run smoke`.** `drizzle-kit push` has already
+> been caught reporting success while leaving an index alone — it did that once
+> with the predicate of a partial index, and the double-booking guard was dead
+> for a while with every check still green. The smoke test now reads
+> `booking_resources_slot_idx` out of `pg_indexes` and asserts its definition
+> rather than trusting that the push did anything.
 
 ## How it fits together
 
@@ -84,10 +98,14 @@ The rules live in pure, database-free modules so they can be tested exhaustively
 | `lib/queries/*` | Database access, composing the rules above |
 | `app/**` | Screens and server actions |
 
-Double-booking is prevented by a partial unique index on
-`(booking_date, sport, court_no, slot_index)` covering every status except
-`cancelled` and `rejected`, so a pending request holds its slot and two people
-tapping the same court at the same moment cannot both succeed.
+Double-booking is prevented by a unique index on
+`booking_resources (booking_date, slot_index, resource_key)`. A booking claims
+the physical pieces of court it occupies — the tennis court is four quarters,
+so playing tennis inserts four rows and one pickleball booking makes tennis
+impossible for that hour. A row exists only while the booking holds its slot,
+so cancelling or declining deletes the rows and frees the court with no status
+to keep in sync, and two people tapping the same court at the same moment
+cannot both succeed.
 
 Free-hour limits (1 per day, 2 per week, 7 days ahead by default) count only
 free bookings — paid hours are never capped. Limits key on the household for
