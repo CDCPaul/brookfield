@@ -8,8 +8,10 @@ import { attachPaymentProof } from '@/lib/queries/bookings';
 
 export const dynamic = 'force-dynamic';
 
-function fail(message: string, status: number) {
-  return NextResponse.json({ error: message }, { status });
+function fail(message: string, status: number, detail?: string) {
+  // `detail` is for whoever is debugging the deployment, not the booker; the
+  // screens only ever render `error`.
+  return NextResponse.json({ error: message, detail }, { status });
 }
 
 export async function POST(request: Request) {
@@ -54,6 +56,7 @@ export async function POST(request: Request) {
     return fail(
       'Could not store the screenshot. Please tell the association.',
       502,
+      error instanceof Error ? `${error.name}: ${error.message}` : String(error),
     );
   }
 
