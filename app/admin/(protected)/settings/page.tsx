@@ -8,7 +8,7 @@ import {
 } from '@/components/admin/settings-forms';
 import { PushToggle } from '@/components/push-toggle';
 import { isSmsConfigured } from '@/lib/notify/sms';
-import { isPushConfigured } from '@/lib/notify/push';
+import { isPushConfigured, publicVapidKey } from '@/lib/notify/push';
 import { Card, Notice, SectionTitle } from '@/components/ui';
 import { countSubscriptions } from '@/lib/queries/push';
 import { getSettings } from '@/lib/queries/settings';
@@ -52,6 +52,7 @@ export default async function SettingsPage() {
           {pushReady ? (
             <>
               <PushToggle
+                vapidKey={publicVapidKey()}
                 audience="admin"
                 label="Alert me here when a court is requested"
                 hint="Applies to this browser only. Turn it on wherever you approve requests."

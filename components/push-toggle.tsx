@@ -44,7 +44,7 @@ type Status = { state: State; isIOS: boolean };
  * await the answer — everything here needs the DOM, and none of it can run
  * during a render.
  */
-async function detect(key: string | undefined): Promise<Status> {
+async function detect(key: string): Promise<Status> {
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
   // iOS only exposes PushManager to an installed app, so an iPhone failing
@@ -69,11 +69,14 @@ async function detect(key: string | undefined): Promise<Status> {
 }
 
 export function PushToggle({
+  vapidKey,
   audience,
   phone = '',
   label,
   hint,
 }: {
+  /** The public half of the server's key pair, handed down by the page. */
+  vapidKey: string;
   audience: 'admin' | 'booker';
   /** The booker's number; ignored for admins, who are a session instead. */
   phone?: string;
@@ -87,7 +90,7 @@ export function PushToggle({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const key = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  const key = vapidKey;
 
   useEffect(() => {
     let cancelled = false;
@@ -116,7 +119,7 @@ export function PushToggle({
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: decodeKey(key!),
+        applicationServerKey: decodeKey(key),
       });
 
       const result = await subscribeToPush(

@@ -15,10 +15,21 @@ import type { PushPayload } from './messages';
 
 export type { PushPayload };
 
+/**
+ * The half of the key pair that belongs in the browser.
+ *
+ * Read on the server and passed down as a prop rather than exposed as a
+ * NEXT_PUBLIC_ variable: those are substituted into the bundle at build time,
+ * and a host that keeps its environment encrypted until runtime — Vercel's
+ * sensitive variables, for one — leaves the placeholder in place, so the
+ * button silently reports that the browser cannot do push.
+ */
+export function publicVapidKey(): string {
+  return process.env.VAPID_PUBLIC_KEY?.trim() ?? '';
+}
+
 export function isPushConfigured(): boolean {
-  return Boolean(
-    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY,
-  );
+  return Boolean(publicVapidKey() && process.env.VAPID_PRIVATE_KEY);
 }
 
 let configured = false;
@@ -29,7 +40,7 @@ function configure(): boolean {
 
   webpush.setVapidDetails(
     process.env.VAPID_SUBJECT?.trim() || 'mailto:admin@brookfield.local',
-    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
+    publicVapidKey(),
     process.env.VAPID_PRIVATE_KEY!,
   );
   configured = true;

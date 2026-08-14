@@ -32,9 +32,12 @@ type Mode = 'phone' | 'address';
 export function MyBookings({
   payment,
   uploadEnabled,
+  vapidKey,
 }: {
   payment: PaymentConfig;
   uploadEnabled: boolean;
+  /** Empty when push is switched off or unconfigured, which hides the toggle. */
+  vapidKey: string;
 }) {
   const [state, formAction] = useActionState<LookupState, FormData>(
     lookupBookingsAction,
@@ -169,9 +172,10 @@ export function MyBookings({
         </Notice>
       ) : null}
 
-      {hasBookings ? (
+      {hasBookings && vapidKey ? (
         <div className="rounded-2xl border border-edge bg-surface p-4">
           <PushToggle
+            vapidKey={vapidKey}
             audience="booker"
             phone={bookings[0].phone}
             label="Tell me here when a booking is decided"
