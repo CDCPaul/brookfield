@@ -19,6 +19,7 @@ import {
 } from '@/lib/queries/bookings';
 import { createClosure, deleteClosure } from '@/lib/queries/closures';
 import {
+  saveCourts,
   savePayment,
   savePricing,
   saveSchedule,
@@ -342,6 +343,24 @@ export async function savePricingAction(
   revalidatePath('/book');
   revalidatePath('/rules');
   return { message: 'Prices saved.' };
+}
+
+export async function saveCourtsAction(
+  _previous: AdminFormState,
+  formData: FormData,
+): Promise<AdminFormState> {
+  await requireAdmin();
+
+  await saveCourts({
+    paidTennisEnabled: text(formData, 'paidTennisEnabled') === 'on',
+    basketballEnabled: text(formData, 'basketballEnabled') === 'on',
+  });
+
+  revalidatePath('/admin/settings');
+  revalidatePath('/');
+  revalidatePath('/book');
+  revalidatePath('/rules');
+  return { message: 'Courts saved.' };
 }
 
 export async function savePaymentAction(

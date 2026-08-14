@@ -1,4 +1,5 @@
 import {
+  CourtsForm,
   HoursForm,
   LimitsForm,
   PaymentForm,
@@ -10,7 +11,7 @@ import { getSettings } from '@/lib/queries/settings';
 export const dynamic = 'force-dynamic';
 
 export default async function SettingsPage() {
-  const { limits, schedule, pricing, payment } = await getSettings();
+  const { limits, schedule, pricing, payment, courts } = await getSettings();
 
   return (
     <div className="space-y-6">
@@ -25,6 +26,13 @@ export default async function SettingsPage() {
         <SectionTitle>Opening hours</SectionTitle>
         <Card>
           <HoursForm schedule={schedule} />
+        </Card>
+      </section>
+
+      <section>
+        <SectionTitle>Which courts are bookable</SectionTitle>
+        <Card>
+          <CourtsForm courts={courts} />
         </Card>
       </section>
 

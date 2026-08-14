@@ -4,12 +4,14 @@ import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
 
 import {
+  saveCourtsAction,
   saveHoursAction,
   saveLimitsAction,
   savePaymentAction,
   savePricingAction,
   type AdminFormState,
 } from '@/app/admin/actions';
+import type { CourtConfig } from '@/lib/courts';
 import { Field, Notice, PrimaryButton, inputClass } from '@/components/ui';
 import type { PaymentConfig } from '@/lib/payment';
 import type { BookingLimits } from '@/lib/rules';
@@ -211,6 +213,56 @@ export function PaymentForm({ payment }: { payment: PaymentConfig }) {
       </Field>
 
       <SubmitButton label="Save payment details" />
+    </form>
+  );
+}
+
+export function CourtsForm({ courts }: { courts: CourtConfig }) {
+  const [state, formAction] = useActionState<AdminFormState, FormData>(
+    saveCourtsAction,
+    {},
+  );
+
+  return (
+    <form action={formAction} className="space-y-4">
+      <Feedback state={state} />
+
+      <label className="flex items-start gap-3 rounded-xl border border-edge p-3">
+        <input
+          type="checkbox"
+          name="paidTennisEnabled"
+          defaultChecked={courts.paidTennisEnabled}
+          className="mt-0.5 size-5 accent-[#4a7c2b]"
+        />
+        <span>
+          <span className="block text-sm font-medium">
+            Take tennis bookings in paid hours
+          </span>
+          <span className="block text-xs text-muted">
+            Off by default — set a tennis rate above before turning this on.
+            The free morning is unaffected.
+          </span>
+        </span>
+      </label>
+
+      <label className="flex items-start gap-3 rounded-xl border border-edge p-3">
+        <input
+          type="checkbox"
+          name="basketballEnabled"
+          defaultChecked={courts.basketballEnabled}
+          className="mt-0.5 size-5 accent-[#4a7c2b]"
+        />
+        <span>
+          <span className="block text-sm font-medium">
+            Take basketball bookings
+          </span>
+          <span className="block text-xs text-muted">
+            Half court or full court, charged at the pickleball rate per half.
+          </span>
+        </span>
+      </label>
+
+      <SubmitButton label="Save courts" />
     </form>
   );
 }
