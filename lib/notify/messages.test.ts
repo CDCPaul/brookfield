@@ -14,6 +14,10 @@ const line = (slotIndex: number, optionKey: string, price = 200) => ({
   price,
 });
 
+/** Every court in `courts`, for every hour in `slots`. */
+const block = (courts: readonly string[], slots: readonly number[]) =>
+  courts.flatMap((court) => slots.map((slot) => line(slot, court)));
+
 const base: RequestSummary = {
   date: '2026-08-16',
   name: 'Juan Dela Cruz',
@@ -25,6 +29,19 @@ const base: RequestSummary = {
 function expectOneCredit(message: string) {
   expect(message.length).toBeLessThanOrEqual(SMS_SINGLE_LIMIT);
 }
+
+/**
+ * The closing line is the part the reader acts on, so it must survive intact.
+ * An ellipsis anywhere means something was clipped rather than compressed.
+ */
+function expectWhole(message: string, ending: string) {
+  expect(message.endsWith(ending)).toBe(true);
+  expect(message).not.toContain('…');
+}
+
+const CONFIRMED_TAIL = 'Arrive 10-15 min early. Water and sports drinks only.';
+const REQUEST_TAIL = 'Approve in the admin page.';
+const DECLINED_TAIL = 'The slot has been released.';
 
 describe('newRequestSms', () => {
   it('names who, when and how much', () => {
@@ -77,6 +94,80 @@ describe('declinedSms', () => {
     expect(message).toContain('released');
     expectOneCredit(message);
   });
+
+  it('drops the note rather than the courts or the outcome', () => {
+    const message = declinedSms(
+      { ...base, lines: block(['pb1', 'pb2', 'pb3', 'pb4'], [12, 13, 14]) },
+      'A very long explanation of exactly why the association could not approve this particular request today',
+    );
+    expect(message).toContain('6PM-9PM Courts 1-4');
+    expect(message).toContain(DECLINED_TAIL);
+    expectOneCredit(message);
+  });
+});
+
+describe('courts sharing the same hours', () => {
+  it('lists four courts booked together as one range', () => {
+    const message = confirmedSms({
+      ...base,
+      lines: block(['pb1', 'pb2', 'pb3', 'pb4'], [12, 13, 14]),
+    });
+    expect(message).toContain('6PM-9PM Courts 1-4');
+    expectWhole(message, CONFIRMED_TAIL);
+    expectOneCredit(message);
+  });
+
+  it('keeps both halves of a split booking', () => {
+    const message = confirmedSms({
+      ...base,
+      lines: block(['pb1', 'pb2', 'pb3', 'pb4'], [12, 13, 16, 17]),
+    });
+    expect(message).toContain('6PM-8PM Courts 1-4');
+    expect(message).toContain('10PM-12AM Courts 1-4');
+    expectWhole(message, CONFIRMED_TAIL);
+    expectOneCredit(message);
+  });
+
+  it('spells out courts that do not run together', () => {
+    const message = confirmedSms({
+      ...base,
+      lines: block(['pb1', 'pb3'], [12, 13]),
+    });
+    expect(message).toContain('6PM-8PM Courts 1,3');
+    expectWhole(message, CONFIRMED_TAIL);
+    expectOneCredit(message);
+  });
+
+  it('holds a whole evening on every court', () => {
+    const message = confirmedSms({
+      ...base,
+      lines: block(['pb1', 'pb2', 'pb3', 'pb4'], [12, 13, 14, 15, 16, 17]),
+    });
+    expect(message).toContain('6PM-12AM Courts 1-4');
+    expectWhole(message, CONFIRMED_TAIL);
+    expectOneCredit(message);
+  });
+});
+
+describe('when even the compressed schedule will not fit', () => {
+  /** Every other hour on every court: nothing merges, nothing groups. */
+  const scattered = block(['pb1', 'pb2', 'pb3', 'pb4'], [0, 2, 4, 6, 8, 10, 12, 14, 16]);
+
+  it('summarises rather than cutting the list off midway', () => {
+    const message = confirmedSms({ ...base, lines: scattered });
+    expect(message).toContain('36 hrs on 4 courts, 6AM-11PM');
+    expect(message).not.toContain('Court 1,');
+    expectWhole(message, CONFIRMED_TAIL);
+    expectOneCredit(message);
+  });
+
+  it('still tells the association who asked and what to do', () => {
+    const message = newRequestSms({ ...base, lines: scattered, amount: 7200 });
+    expect(message).toContain('Juan Dela Cruz');
+    expect(message).toContain('P7200');
+    expectWhole(message, REQUEST_TAIL);
+    expectOneCredit(message);
+  });
 });
 
 describe('staying inside one credit', () => {
@@ -102,6 +193,19 @@ describe('staying inside one credit', () => {
       declinedSms(crowded, 'A very long explanation that nobody asked for'),
     ]) {
       expectOneCredit(message);
+    }
+  });
+
+  it('never loses the closing line, whatever is thrown at it', () => {
+    const courts = ['pb1', 'pb2', 'pb3', 'pb4'];
+    const hours = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
+
+    for (let count = 1; count <= hours.length; count += 1) {
+      const lines = block(courts, hours.slice(0, count));
+      const summary = { ...base, lines, amount: lines.length * 200 };
+      expectWhole(confirmedSms(summary), CONFIRMED_TAIL);
+      expectWhole(newRequestSms(summary), REQUEST_TAIL);
+      expectWhole(declinedSms(summary, ''), DECLINED_TAIL);
     }
   });
 });
