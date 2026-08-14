@@ -6,12 +6,11 @@ import { Notice, SportBadge } from '@/components/ui';
 import { getBookingsForDate } from '@/lib/queries/bookings';
 import { getClosures } from '@/lib/queries/closures';
 import { getSettings } from '@/lib/queries/settings';
+import { closureRangeLabel } from '@/lib/rules';
 import {
   type Tier,
   formatPeso,
   getSlot,
-  openSlots,
-  sportForDate,
   tierLabel,
   tierRangeLabel,
 } from '@/lib/schedule';
@@ -30,7 +29,6 @@ export default async function AdminBookingsPage({
   const today = manilaNow().date;
   const date = params.date && isValidDateStr(params.date) ? params.date : today;
 
-  const sport = sportForDate(date);
   const [bookings, closures, { schedule }] = await Promise.all([
     getBookingsForDate(date),
     getClosures(date, date),
@@ -44,7 +42,14 @@ export default async function AdminBookingsPage({
     ['cancelled', 'rejected'].includes(booking.status),
   );
 
-  const capacity = openSlots(schedule).length * (sport === 'tennis' ? 1 : 4);
+  // Counting by sport rather than against a capacity figure: the courts
+  // overlap, so "N of M" would mean nothing — one tennis booking uses up four
+  // pickleball courts.
+  const bySport = new Map<string, number>();
+  for (const booking of live) {
+    bySport.set(booking.sport, (bySport.get(booking.sport) ?? 0) + 1);
+  }
+
   const revenue = live
     .filter((booking) => booking.status !== 'no_show')
     .reduce((total, booking) => total + booking.amount, 0);
@@ -53,17 +58,24 @@ export default async function AdminBookingsPage({
     <div className="space-y-5">
       <DateNav date={date} basePath="/admin" />
 
-      <div className="flex items-center justify-between rounded-xl border border-edge bg-surface px-4 py-3">
-        <SportBadge sport={sport} />
-        <p className="text-right text-sm">
-          <span className="font-semibold">{live.length}</span>
-          <span className="text-muted"> of {capacity} booked</span>
-          {revenue > 0 ? (
-            <span className="block text-xs text-muted">
-              {formatPeso(revenue)} billed
-            </span>
-          ) : null}
-        </p>
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-edge bg-surface px-4 py-3">
+        <div className="flex flex-wrap gap-1.5">
+          {bySport.size === 0 ? (
+            <span className="text-sm text-muted">Nothing booked</span>
+          ) : (
+            [...bySport].map(([sport, count]) => (
+              <span key={sport} className="flex items-center gap-1">
+                <SportBadge sport={sport} />
+                <span className="text-sm font-semibold">{count}</span>
+              </span>
+            ))
+          )}
+        </div>
+        {revenue > 0 ? (
+          <p className="shrink-0 text-right text-sm text-muted">
+            {formatPeso(revenue)} billed
+          </p>
+        ) : null}
       </div>
 
       {closures.length > 0 ? (
@@ -72,11 +84,7 @@ export default async function AdminBookingsPage({
           <ul className="mt-1 space-y-0.5 text-xs text-muted">
             {closures.map((closure, index) => (
               <li key={index}>
-                {closure.reason} ·{' '}
-                {closure.slotIndex === null
-                  ? 'all slots'
-                  : getSlot(closure.slotIndex).label}{' '}
-                ·{' '}
+                {closure.reason} · {closureRangeLabel(closure)} ·{' '}
                 {closure.venue === null ? 'all courts' : closure.venue}
               </li>
             ))}

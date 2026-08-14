@@ -9,7 +9,8 @@ function toClosure(row: typeof closures.$inferSelect): Closure {
   return {
     dateFrom: row.dateFrom,
     dateTo: row.dateTo,
-    slotIndex: row.slotIndex,
+    slotFrom: row.slotFrom,
+    slotTo: row.slotTo,
     venue: (row.venue as Venue | null) ?? null,
     reason: row.reason,
   };
@@ -34,7 +35,8 @@ export async function listClosures() {
 export async function createClosure(input: {
   dateFrom: DateStr;
   dateTo: DateStr;
-  slotIndex: number | null;
+  slotFrom: number | null;
+  slotTo: number | null;
   venue: Venue | null;
   reason: string;
 }) {

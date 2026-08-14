@@ -13,7 +13,6 @@ import {
   monthOf,
   monthRange,
 } from '@/lib/time';
-import { formatUnitLabel } from '@/lib/unit-key';
 
 export const dynamic = 'force-dynamic';
 
@@ -151,13 +150,27 @@ export default async function StatsPage({
           </section>
 
           <section>
-            <SectionTitle>Most active units</SectionTitle>
+            <SectionTitle>Most active bookers</SectionTitle>
             <Card>
               <ol className="space-y-1.5 text-sm">
-                {stats.topUnits.map((unit) => (
-                  <li key={unit.unitKey} className="flex justify-between gap-3">
-                    <span className="truncate">{formatUnitLabel(unit)}</span>
-                    <span className="shrink-0 font-semibold">{unit.count}</span>
+                {stats.topBookers.map((booker) => (
+                  <li
+                    key={booker.phone}
+                    className="flex justify-between gap-3"
+                  >
+                    <span className="min-w-0 truncate">
+                      {booker.name}
+                      <span className="text-muted"> · {booker.phone}</span>
+                    </span>
+                    <span className="shrink-0 font-semibold">
+                      {booker.count}
+                      {booker.spent > 0 ? (
+                        <span className="font-normal text-muted">
+                          {' '}
+                          · {formatPeso(booker.spent)}
+                        </span>
+                      ) : null}
+                    </span>
                   </li>
                 ))}
               </ol>

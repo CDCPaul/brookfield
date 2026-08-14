@@ -1,5 +1,4 @@
-import type { Closure } from '@/lib/rules';
-import { SLOTS } from '@/lib/schedule';
+import { type Closure, closureRangeLabel } from '@/lib/rules';
 import { formatShortDate } from '@/lib/time';
 
 function describe(closure: Closure): string {
@@ -8,10 +7,7 @@ function describe(closure: Closure): string {
       ? formatShortDate(closure.dateFrom)
       : `${formatShortDate(closure.dateFrom)} – ${formatShortDate(closure.dateTo)}`;
 
-  const when =
-    closure.slotIndex === null
-      ? 'all morning'
-      : SLOTS[closure.slotIndex].label;
+  const when = closureRangeLabel(closure);
 
   const where =
     closure.venue === null

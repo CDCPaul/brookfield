@@ -17,12 +17,12 @@ export type MonthStats = {
   bySport: { sport: string; count: number }[];
   byTier: { tier: string; count: number; amount: number }[];
   bySlot: { slotIndex: number; count: number }[];
-  topUnits: {
-    unitKey: string;
-    phase: string;
-    block: string;
-    lot: string;
+  /** Busiest bookers, by mobile number — the identity everyone has. */
+  topBookers: {
+    phone: string;
+    name: string;
     count: number;
+    spent: number;
   }[];
 };
 
@@ -79,20 +79,16 @@ export async function getStats(
     .groupBy(bookings.slotIndex)
     .orderBy(bookings.slotIndex);
 
-  const topUnits = await db
+  const topBookers = await db
     .select({
-      unitKey: units.unitKey,
-      // Returned raw so the display label goes through the same normalization
-      // as everywhere else (lib/unit-key.ts), not a second format built in SQL.
-      phase: units.phase,
-      block: units.block,
-      lot: units.lot,
+      phone: bookings.phone,
+      name: sql<string>`(array_agg(${bookings.bookerName} order by ${bookings.createdAt} desc))[1]`,
       count: sql<number>`count(*)::int`,
+      spent: sql<number>`coalesce(sum(${bookings.amount}) filter (where ${bookings.paymentStatus} = 'paid'), 0)::int`,
     })
     .from(bookings)
-    .innerJoin(units, sql`${units.id} = ${bookings.unitId}`)
     .where(standing)
-    .groupBy(units.id)
+    .groupBy(bookings.phone)
     .orderBy(desc(sql`count(*)`))
     .limit(10);
 
@@ -108,7 +104,7 @@ export async function getStats(
     bySport,
     byTier,
     bySlot: bySlot.map((row) => ({ slotIndex: row.slotIndex, count: row.count })),
-    topUnits,
+    topBookers,
   };
 }
 

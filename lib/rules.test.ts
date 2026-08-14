@@ -12,6 +12,7 @@ import {
   bookableDates,
   bookerUsage,
   checkBooking,
+  closureRangeLabel,
   computeDayAvailability,
   findClosure,
   findSlotAvailability,
@@ -385,7 +386,8 @@ describe('checkBooking — limits and closures', () => {
     const closure: Closure = {
       dateFrom: PICKLEBALL_DATE,
       dateTo: PICKLEBALL_DATE,
-      slotIndex: null,
+      slotFrom: null,
+      slotTo: null,
       venue: 'tennis-court',
       reason: 'Resurfacing works',
     };
@@ -460,7 +462,8 @@ describe('findClosure', () => {
   const closure: Closure = {
     dateFrom: '2026-08-14',
     dateTo: '2026-08-16',
-    slotIndex: null,
+    slotFrom: null,
+    slotTo: null,
     venue: null,
     reason: 'Typhoon',
   };
@@ -475,6 +478,67 @@ describe('findClosure', () => {
   it('does not match outside the range', () => {
     expect(findClosure([closure], '2026-08-13', 0, 'tennis-court')).toBeNull();
     expect(findClosure([closure], '2026-08-17', 0, 'tennis-court')).toBeNull();
+  });
+
+  it('covers an inclusive band of hours', () => {
+    // 09:00 to 12:00 inclusive — slots 3, 4, 5 and 6.
+    const morning: Closure = {
+      dateFrom: '2026-08-14',
+      dateTo: '2026-08-14',
+      slotFrom: 3,
+      slotTo: 6,
+      venue: null,
+      reason: 'Works',
+    };
+
+    expect(findClosure([morning], '2026-08-14', 2, 'tennis-court')).toBeNull();
+    expect(
+      findClosure([morning], '2026-08-14', 3, 'tennis-court'),
+    ).not.toBeNull();
+    expect(
+      findClosure([morning], '2026-08-14', 6, 'tennis-court'),
+    ).not.toBeNull();
+    expect(findClosure([morning], '2026-08-14', 7, 'tennis-court')).toBeNull();
+  });
+
+  it('treats an open end as running to closing time', () => {
+    const evening: Closure = {
+      dateFrom: '2026-08-14',
+      dateTo: '2026-08-14',
+      slotFrom: 12,
+      slotTo: null,
+      venue: null,
+      reason: 'Event',
+    };
+
+    expect(findClosure([evening], '2026-08-14', 11, 'tennis-court')).toBeNull();
+    expect(
+      findClosure([evening], '2026-08-14', 17, 'tennis-court'),
+    ).not.toBeNull();
+  });
+});
+
+describe('closureRangeLabel', () => {
+  const base = {
+    dateFrom: '2026-08-14',
+    dateTo: '2026-08-14',
+    venue: null,
+    reason: 'Works',
+  };
+
+  it('says all day when no hours are given', () => {
+    expect(
+      closureRangeLabel({ ...base, slotFrom: null, slotTo: null }),
+    ).toBe('all day');
+  });
+
+  it('reads from the start of the first hour to the end of the last', () => {
+    expect(closureRangeLabel({ ...base, slotFrom: 0, slotTo: 2 })).toBe(
+      '6:00 AM – 9:00 AM',
+    );
+    expect(closureRangeLabel({ ...base, slotFrom: 12, slotTo: null })).toBe(
+      '6:00 PM – 12:00 AM',
+    );
   });
 });
 

@@ -50,7 +50,11 @@ export const bookings = pgTable(
     /** Civil date in Manila, 'YYYY-MM-DD'. */
     bookingDate: date('booking_date', { mode: 'string' }).notNull(),
     slotIndex: smallint('slot_index').notNull(),
-    /** 'tennis' | 'pickleball' — derived from the date, stored for reporting. */
+    /**
+     * What was actually played: 'tennis' | 'pickleball' | 'basketball'.
+     * Taken from the court option, not the date — the basketball court is
+     * open every day regardless of the tennis/pickleball rotation.
+     */
     sport: text('sport').notNull(),
     /** Key from lib/courts.ts: 'tennis', 'pb1'…'pb4', 'bbA', 'bbB', 'bbFull'. */
     courtOption: text('court_option').notNull().default('tennis'),
@@ -143,8 +147,12 @@ export const closures = pgTable(
     id: serial('id').primaryKey(),
     dateFrom: date('date_from', { mode: 'string' }).notNull(),
     dateTo: date('date_to', { mode: 'string' }).notNull(),
-    /** null closes every slot that day. */
-    slotIndex: smallint('slot_index'),
+    /**
+     * Inclusive slot range. Null on both means the whole day, which is what a
+     * washed-out morning or a day of works actually looks like.
+     */
+    slotFrom: smallint('slot_from'),
+    slotTo: smallint('slot_to'),
     /** 'tennis-court' | 'basketball-court'; null closes both surfaces. */
     venue: text('venue'),
     reason: text('reason').notNull(),
@@ -154,6 +162,22 @@ export const closures = pgTable(
   },
   (table) => [index('closures_range_idx').on(table.dateFrom, table.dateTo)],
 );
+
+/**
+ * People the association has stopped from booking.
+ *
+ * Keyed on the mobile number because that is the one identity everybody has —
+ * an address is only given up for free court time, so a household blocklist
+ * would miss every paid booking.
+ */
+export const blockedPhones = pgTable('blocked_phones', {
+  /** Normalized to 09XXXXXXXXX. */
+  phone: text('phone').primaryKey(),
+  reason: text('reason'),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
 
 /** Key-value knobs the association can change without a deploy. */
 export const settings = pgTable('settings', {

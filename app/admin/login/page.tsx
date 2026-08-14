@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { AdminLoginForm } from '@/components/admin/login-form';
@@ -22,6 +23,13 @@ export default async function AdminLoginPage() {
       </div>
 
       <AdminLoginForm />
+
+      <Link
+        href="/"
+        className="mt-6 block text-center text-sm font-medium text-court underline"
+      >
+        ← Back to booking
+      </Link>
     </div>
   );
 }

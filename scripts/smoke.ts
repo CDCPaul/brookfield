@@ -10,6 +10,7 @@ import { eq, inArray, like, sql } from 'drizzle-orm';
 
 import { bookingResources, bookings, db, units } from '../lib/db';
 import { isTennisDay } from '../lib/courts';
+import { listBookers, setPhoneBlocked } from '../lib/queries/bookers';
 import { phoneOwner, unitOwner } from '../lib/owner';
 import { getDayAvailability } from '../lib/queries/availability';
 import {
@@ -50,6 +51,10 @@ function check(label: string, condition: boolean, detail?: string) {
 }
 
 async function cleanup() {
+  await setPhoneBlocked(PHONE_A, false, null);
+  await setPhoneBlocked(PHONE_B, false, null);
+  await setPhoneBlocked(GUEST_PHONE, false, null);
+
   const keys = [buildUnitKey(UNIT_A), buildUnitKey(UNIT_B)];
   const rows = await db.select().from(units).where(inArray(units.unitKey, keys));
   for (const unit of rows) {
@@ -350,6 +355,59 @@ async function main() {
       slot?.options.find((o) => o.option.key === 'pb1')?.status,
     );
   }
+
+  console.log('\nBlocking\n');
+
+  await setPhoneBlocked(PHONE_B, true, 'Smoke test');
+  const blocked = await createRequest({
+    bookerType: 'guest',
+    date: target,
+    picks: [{ slotIndex: NIGHT_SLOT + 3, optionKey: 'pb3' }],
+    name: 'Smoke Test B',
+    phone: PHONE_B,
+  });
+  check(
+    'a blocked number cannot book',
+    !blocked.ok && blocked.code === 'booker_blocked',
+    blocked.ok ? 'was accepted' : blocked.code,
+  );
+
+  // Residents are identified by household, so blocking has to reach them too.
+  const blockedResident = await createRequest({
+    ...RESIDENT_B,
+    date: target,
+    picks: [{ slotIndex: NIGHT_SLOT + 3, optionKey: 'pb3' }],
+    name: 'Smoke Test B',
+    phone: PHONE_B,
+  });
+  check(
+    'and cannot book as a resident either',
+    !blockedResident.ok && blockedResident.code === 'booker_blocked',
+    blockedResident.ok ? 'was accepted' : blockedResident.code,
+  );
+
+  await setPhoneBlocked(PHONE_B, false, null);
+  const unblocked = await createRequest({
+    bookerType: 'guest',
+    date: target,
+    picks: [{ slotIndex: NIGHT_SLOT + 3, optionKey: 'pb3' }],
+    name: 'Smoke Test B',
+    phone: PHONE_B,
+  });
+  check(
+    'unblocking lets them book again',
+    unblocked.ok,
+    unblocked.ok ? '' : unblocked.message,
+  );
+
+  const listed = (await listBookers()).filter((entry) =>
+    entry.phone.startsWith('0999'),
+  );
+  check(
+    'bookers are listed by mobile number',
+    listed.length > 0 && listed.every((entry) => entry.bookings > 0),
+    `${listed.length} booker(s)`,
+  );
 
   console.log('\nApproval\n');
 

@@ -4,7 +4,7 @@ import {
 } from '@/components/admin/closure-form';
 import { Card, Notice, SectionTitle } from '@/components/ui';
 import { listClosures } from '@/lib/queries/closures';
-import { SLOTS } from '@/lib/schedule';
+import { closureRangeLabel } from '@/lib/rules';
 import { formatShortDate, manilaNow } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
@@ -53,9 +53,7 @@ export default async function ClosuresPage() {
                       ? ` – ${formatShortDate(closure.dateTo)}`
                       : ''}
                     {' · '}
-                    {closure.slotIndex === null
-                      ? 'All slots'
-                      : SLOTS[closure.slotIndex].label}
+                    {closureRangeLabel(closure)}
                     {' · '}
                     {closure.venue === null
                       ? 'All courts'

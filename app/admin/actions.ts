@@ -24,7 +24,7 @@ import {
   saveSchedule,
   saveLimits,
 } from '@/lib/queries/settings';
-import { setUnitBlocked } from '@/lib/queries/units';
+import { setPhoneBlocked } from '@/lib/queries/bookers';
 import { LAST_HOUR, OPEN_HOUR, isValidSlotIndex } from '@/lib/schedule';
 import { isValidDateStr } from '@/lib/time';
 
@@ -178,9 +178,16 @@ export async function createClosureAction(
     return { error: 'Please give a short reason (shown to residents).' };
   }
 
-  const slotIndex = optionalNumber(formData, 'slotIndex');
-  if (slotIndex !== null && !isValidSlotIndex(slotIndex)) {
-    return { error: 'Invalid time slot.' };
+  const slotFrom = optionalNumber(formData, 'slotFrom');
+  const slotTo = optionalNumber(formData, 'slotTo');
+
+  for (const slot of [slotFrom, slotTo]) {
+    if (slot !== null && !isValidSlotIndex(slot)) {
+      return { error: 'Invalid time.' };
+    }
+  }
+  if (slotFrom !== null && slotTo !== null && slotTo < slotFrom) {
+    return { error: 'The end time cannot be before the start time.' };
   }
 
   const rawVenue = text(formData, 'venue');
@@ -189,7 +196,7 @@ export async function createClosureAction(
       ? rawVenue
       : null;
 
-  await createClosure({ dateFrom, dateTo, slotIndex, venue, reason });
+  await createClosure({ dateFrom, dateTo, slotFrom, slotTo, venue, reason });
 
   revalidatePath('/admin/closures');
   revalidatePath('/');
@@ -214,26 +221,26 @@ export async function deleteClosureAction(
   return { message: 'Closure removed.' };
 }
 
-export async function setUnitBlockedAction(
+export async function setBookerBlockedAction(
   _previous: AdminFormState,
   formData: FormData,
 ): Promise<AdminFormState> {
   await requireAdmin();
 
-  const id = Number(formData.get('unitId'));
-  if (!Number.isInteger(id)) return { error: 'Unknown unit.' };
+  const phone = text(formData, 'phone').trim();
+  if (phone === '') return { error: 'Unknown booker.' };
 
   const blocked = text(formData, 'blocked') === 'true';
   const reason = text(formData, 'reason').trim();
 
   if (blocked && reason.length < 3) {
-    return { error: 'Please record why this unit is being blocked.' };
+    return { error: 'Please record why this person is being blocked.' };
   }
 
-  await setUnitBlocked(id, blocked, reason || null);
+  await setPhoneBlocked(phone, blocked, reason || null);
 
-  revalidatePath('/admin/units');
-  return { message: blocked ? 'Unit blocked.' : 'Unit unblocked.' };
+  revalidatePath('/admin/bookers');
+  return { message: blocked ? 'Booker blocked.' : 'Booker unblocked.' };
 }
 
 export async function saveLimitsAction(

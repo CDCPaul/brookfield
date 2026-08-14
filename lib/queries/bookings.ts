@@ -29,11 +29,7 @@ import {
   findOption,
   priceForOption,
 } from '@/lib/courts';
-import {
-  isValidSlotIndex,
-  sportForDate,
-  tierForSlot,
-} from '@/lib/schedule';
+import { isValidSlotIndex, tierForSlot } from '@/lib/schedule';
 import {
   addDays,
   isValidDateStr,
@@ -48,6 +44,7 @@ import {
   type UnitInput,
 } from '@/lib/unit-key';
 
+import { isPhoneBlocked } from './bookers';
 import { getClosures } from './closures';
 import { getSettings } from './settings';
 import { findOrCreateUnit, findUnitByKey } from './units';
@@ -100,7 +97,13 @@ export async function getBookerState(
   owner: Owner,
   today: DateStr,
   advanceDays: number,
+  phone?: string,
 ): Promise<BookerState> {
+  // Blocking is by mobile number, so it has to be checked even when the booker
+  // is identified by household — otherwise a blocked person could still take
+  // free court time.
+  const phoneBlocked = phone ? await isPhoneBlocked(phone) : false;
+
   const withinWindow = and(
     OCCUPYING,
     gte(bookings.bookingDate, weekStart(today)),
@@ -120,18 +123,18 @@ export async function getBookerState(
       .select(columns)
       .from(bookings)
       .where(and(eq(bookings.phone, owner.key), withinWindow));
-    return { isBlocked: false, bookings: toState(rows) };
+    return { isBlocked: phoneBlocked, bookings: toState(rows) };
   }
 
   const unit = await findUnitByKey(owner.key);
-  if (!unit) return { isBlocked: false, bookings: [] };
+  if (!unit) return { isBlocked: phoneBlocked, bookings: [] };
 
   const rows = await db
     .select(columns)
     .from(bookings)
     .where(and(eq(bookings.unitId, unit.id), withinWindow));
 
-  return { isBlocked: unit.isBlocked, bookings: toState(rows) };
+  return { isBlocked: phoneBlocked, bookings: toState(rows) };
 }
 
 /** One slot in a request. Several may be asked for together. */
@@ -195,7 +198,6 @@ export async function createBooking(
     return invalid('Please choose a time slot.');
   }
 
-  const sport = sportForDate(input.date);
   const moment = manilaNow(now);
   const { limits, schedule, pricing, courts } = await getSettings();
 
@@ -230,7 +232,7 @@ export async function createBooking(
   const [closures, held, bookerState] = await Promise.all([
     getClosures(input.date, input.date),
     getHeldResources(input.date, input.date),
-    getBookerState(owner, moment.date, limits.advanceDays),
+    getBookerState(owner, moment.date, limits.advanceDays, input.phone),
   ]);
 
   const verdict = checkBooking({
@@ -258,7 +260,6 @@ export async function createBooking(
   const created = await insertBooking({
     date: input.date,
     slotIndex: input.slotIndex,
-    sport,
     option: booked,
     bookerType: input.bookerType,
     tier: verdict.tier,
@@ -275,7 +276,6 @@ export async function createBooking(
 type InsertInput = {
   date: DateStr;
   slotIndex: number;
-  sport: string;
   option: CourtOption;
   bookerType: BookerType;
   tier: string;
@@ -304,7 +304,7 @@ async function insertBooking(
           code: generateBookingCode(),
           bookingDate: input.date,
           slotIndex: input.slotIndex,
-          sport: input.sport,
+          sport: input.option.activity,
           courtOption: input.option.key,
           courtNo: legacyCourtNo(input.option.key),
           bookerType: input.bookerType,
@@ -389,7 +389,6 @@ export async function createRequest(
     return invalid('Please enter a valid mobile number, e.g. 0917 123 4567.');
   }
 
-  const sport = sportForDate(input.date);
   const moment = manilaNow(now);
   const { limits, schedule, pricing, courts } = await getSettings();
 
@@ -415,7 +414,7 @@ export async function createRequest(
   const [closures, storedHeld, bookerState] = await Promise.all([
     getClosures(input.date, input.date),
     getHeldResources(input.date, input.date),
-    getBookerState(owner, moment.date, limits.advanceDays),
+    getBookerState(owner, moment.date, limits.advanceDays, input.phone),
   ]);
 
   // Grows as picks are accepted, so the request cannot conflict with itself or
@@ -477,7 +476,6 @@ export async function createRequest(
     const created = await insertBooking({
       date: input.date,
       slotIndex: entry.pick.slotIndex,
-      sport,
       option: entry.option,
       bookerType: input.bookerType,
       tier: entry.tier,

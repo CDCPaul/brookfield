@@ -1,84 +1,110 @@
 /**
- * Stand-in mark drawn from the Brookfield Subdivision logo — sun over the
- * treeline and water, inside the rounded green frame.
+ * The BrookSide Bounce mark: sun over the treeline, a pickleball, and the
+ * brook, inside the rounded green frame.
  *
- * Replace the body of this component with an <Image src="/brookfield-logo.png">
- * once the official artwork is in public/.
+ * Drawn rather than loaded so it stays sharp at any size and needs no asset.
+ * Swap the body for an <Image src="/brookside-bounce.png"> if the original
+ * artwork is added to public/.
  */
 export function Logo({ className }: { className?: string }) {
-  const rays = Array.from({ length: 12 }, (_, index) => index * 30);
+  const rays = [-70, -45, -20, 5, 30];
 
   return (
     <svg
       viewBox="0 0 64 64"
       className={className}
       role="img"
-      aria-label="Brookfield Subdivision"
+      aria-label="BrookSide Bounce"
     >
       <defs>
-        <radialGradient id="bf-sun" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#f4801f" />
-          <stop offset="55%" stopColor="#fdc300" />
-          <stop offset="100%" stopColor="#ffdb52" />
+        <radialGradient id="bsb-sun" cx="40%" cy="35%" r="70%">
+          <stop offset="0%" stopColor="#ffe27a" />
+          <stop offset="60%" stopColor="#fbc02d" />
+          <stop offset="100%" stopColor="#f39c12" />
         </radialGradient>
+        <radialGradient id="bsb-ball" cx="35%" cy="30%" r="75%">
+          <stop offset="0%" stopColor="#f4e04d" />
+          <stop offset="100%" stopColor="#d4b81a" />
+        </radialGradient>
+        <clipPath id="bsb-frame">
+          <rect x="3" y="3" width="58" height="58" rx="15" />
+        </clipPath>
       </defs>
 
-      <rect
-        x="1.75"
-        y="1.75"
-        width="60.5"
-        height="60.5"
-        rx="13"
-        fill="none"
-        stroke="#8cc63f"
-        strokeWidth="2.5"
-      />
+      <g clipPath="url(#bsb-frame)">
+        <rect x="3" y="3" width="58" height="58" fill="#fdfdf7" />
 
-      {rays.map((angle) => (
-        <line
-          key={angle}
-          x1="32"
-          y1="12.5"
-          x2="32"
-          y2="7.5"
-          stroke="#f0e6b8"
-          strokeWidth="3.4"
-          strokeLinecap="round"
-          transform={`rotate(${angle} 32 27)`}
-        />
-      ))}
+        {/* Sun */}
+        <g stroke="#f5b120" strokeWidth="2.6" strokeLinecap="round">
+          {rays.map((angle) => (
+            <line
+              key={angle}
+              x1="24"
+              y1="13"
+              x2="24"
+              y2="8"
+              transform={`rotate(${angle} 24 24)`}
+            />
+          ))}
+        </g>
+        <circle cx="24" cy="24" r="8.5" fill="url(#bsb-sun)" />
 
-      <circle cx="32" cy="27" r="12.75" fill="#f8f0c8" />
-      <circle cx="32" cy="27" r="9.5" fill="url(#bf-sun)" />
-
-      {/* Treeline: a lighter mound behind, the main bush in front. */}
-      <path
-        d="M6 47c0-5.5 3.8-9.8 8.6-9.8 1.7-3.9 7.3-5.2 10.6-1.6 3.6-1.4 7.3 1.3 7.3 5.2V47Z"
-        fill="#7cb342"
-      />
-      <path
-        d="M19 47c0-7.4 5.6-13 12.4-13 5.9 0 10.9 4.2 12.1 9.8 3.2-.4 5.8 1.9 5.8 4.9V47Z"
-        fill="#3f8b32"
-      />
-
-      {/* Water. */}
-      <g fill="none" strokeLinecap="round">
+        {/* Treeline */}
         <path
-          d="M4 49.5c4.7-3 9.3-3 14 0s9.3 3 14 0 9.3-3 14 0 9.3 3 14 0"
-          stroke="#29abe2"
-          strokeWidth="2.2"
+          d="M4 44c0-6.2 4.6-11.2 10.3-11.2 1.6-4 6.4-6.8 11.9-6.8 6.9 0 12.5 4.6 12.5 10.3V44Z"
+          fill="#2f7d32"
         />
         <path
-          d="M4 54c4.7-3 9.3-3 14 0s9.3 3 14 0 9.3-3 14 0 9.3 3 14 0"
-          stroke="#9fd8f2"
-          strokeWidth="2.2"
+          d="M30 44c0-5.4 4-9.8 9-9.8s9 4.4 9 9.8H30Z"
+          fill="#4f9e3f"
         />
+
+        {/* Pickleball */}
+        <circle cx="44" cy="33" r="10.5" fill="url(#bsb-ball)" />
+        {[
+          [41, 29],
+          [47, 30],
+          [40.5, 35],
+          [46.5, 36],
+          [43.5, 39.5],
+        ].map(([cx, cy]) => (
+          <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="1.35" fill="#b39a10" />
+        ))}
+
+        {/* The brook */}
         <path
-          d="M4 58c4.7-3 9.3-3 14 0s9.3 3 14 0 9.3-3 14 0 9.3 3 14 0"
-          stroke="#29abe2"
-          strokeWidth="1.8"
+          d="M0 47c8-4 14 4 22 0s14-4 22 0 14 0 20-3v20H0Z"
+          fill="#ffffff"
         />
+        <g fill="none" strokeLinecap="round">
+          <path
+            d="M0 47c8-4 14 4 22 0s14-4 22 0 14 0 20-3"
+            stroke="#2f9fd0"
+            strokeWidth="2.4"
+          />
+          <path
+            d="M0 52c8-4 14 4 22 0s14-4 22 0 14 0 20-3"
+            stroke="#9fd8f2"
+            strokeWidth="2.2"
+          />
+          <path
+            d="M0 57c8-4 14 4 22 0s14-4 22 0 14 0 20-3"
+            stroke="#2f9fd0"
+            strokeWidth="2"
+          />
+        </g>
       </g>
+
+      <rect
+        x="3"
+        y="3"
+        width="58"
+        height="58"
+        rx="15"
+        fill="none"
+        stroke="#3f8b32"
+        strokeWidth="3"
+      />
     </svg>
   );
 }

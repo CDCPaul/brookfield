@@ -236,7 +236,7 @@ function BookingCard({
           </p>
           <p className="text-xs text-muted">{booking.bookerName}</p>
         </div>
-        <SportBadge sport={booking.sport as 'tennis' | 'pickleball'} />
+        <SportBadge sport={booking.sport} />
       </div>
 
       <div className="mt-2.5 flex flex-wrap gap-1.5">

@@ -23,6 +23,7 @@ import {
   type ScheduleConfig,
   type Slot,
   type Tier,
+  SLOT_COUNT,
   getSlot,
   isValidSlotIndex,
   openSlots,
@@ -35,6 +36,7 @@ import {
   type ManilaMoment,
   addDays,
   daysBetween,
+  formatClock,
   formatShortDate,
   isSameWeek,
 } from './time';
@@ -59,8 +61,9 @@ export const DEFAULT_LIMITS: BookingLimits = {
 export type Closure = {
   dateFrom: DateStr;
   dateTo: DateStr;
-  /** null closes every slot that day. */
-  slotIndex: number | null;
+  /** Inclusive slot range; null on both means the whole day. */
+  slotFrom: number | null;
+  slotTo: number | null;
   /** null closes both surfaces. */
   venue: Venue | null;
   reason: string;
@@ -117,11 +120,27 @@ export function findClosure(
       daysBetween(closure.dateFrom, date) >= 0 &&
       daysBetween(date, closure.dateTo) >= 0;
     if (!withinRange) continue;
-    if (closure.slotIndex !== null && closure.slotIndex !== slotIndex) continue;
+    if (closure.slotFrom !== null && slotIndex < closure.slotFrom) continue;
+    if (closure.slotTo !== null && slotIndex > closure.slotTo) continue;
     if (closure.venue !== null && closure.venue !== venue) continue;
     return closure;
   }
   return null;
+}
+
+/**
+ * The hours a closure covers, e.g. '6:00 AM – 9:00 AM' or 'all day'.
+ *
+ * Takes only the hour fields so it works on a raw database row as readily as
+ * on a parsed Closure.
+ */
+export function closureRangeLabel(
+  closure: Pick<Closure, 'slotFrom' | 'slotTo'>,
+): string {
+  if (closure.slotFrom === null && closure.slotTo === null) return 'all day';
+  const from = getSlot(closure.slotFrom ?? 0);
+  const to = getSlot(closure.slotTo ?? SLOT_COUNT - 1);
+  return `${formatClock(from.startMinutes)} – ${formatClock(to.endMinutes)}`;
 }
 
 /** A slot is bookable only strictly before it begins. */

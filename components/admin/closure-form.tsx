@@ -10,6 +10,7 @@ import {
 } from '@/app/admin/actions';
 import { Field, Notice, PrimaryButton, inputClass } from '@/components/ui';
 import { SLOTS } from '@/lib/schedule';
+import { formatClock } from '@/lib/time';
 
 export function ClosureForm({ today }: { today: string }) {
   const [state, formAction] = useActionState<AdminFormState, FormData>(
@@ -24,7 +25,7 @@ export function ClosureForm({ today }: { today: string }) {
       {state.message ? <Notice tone="success">{state.message}</Notice> : null}
 
       <div className="grid grid-cols-2 gap-2">
-        <Field label="From">
+        <Field label="First day">
           <input
             type="date"
             name="dateFrom"
@@ -34,7 +35,7 @@ export function ClosureForm({ today }: { today: string }) {
             className={inputClass}
           />
         </Field>
-        <Field label="To" hint="Leave as-is for a single day.">
+        <Field label="Last day" hint="Leave as-is for a single day.">
           <input
             type="date"
             name="dateTo"
@@ -45,16 +46,28 @@ export function ClosureForm({ today }: { today: string }) {
         </Field>
       </div>
 
-      <Field label="Time slot">
-        <select name="slotIndex" defaultValue="all" className={inputClass}>
-          <option value="all">All slots (whole morning)</option>
-          {SLOTS.map((slot) => (
-            <option key={slot.index} value={slot.index}>
-              {slot.label}
-            </option>
-          ))}
-        </select>
-      </Field>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Closed from">
+          <select name="slotFrom" defaultValue="all" className={inputClass}>
+            <option value="all">Opening</option>
+            {SLOTS.map((slot) => (
+              <option key={slot.index} value={slot.index}>
+                {formatClock(slot.startMinutes)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Until" hint="Inclusive — that hour is closed too.">
+          <select name="slotTo" defaultValue="all" className={inputClass}>
+            <option value="all">Closing</option>
+            {SLOTS.map((slot) => (
+              <option key={slot.index} value={slot.index}>
+                {formatClock(slot.endMinutes)}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
 
       <Field
         label="Which surface"

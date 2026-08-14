@@ -72,18 +72,27 @@ export function SecondaryButton({
   );
 }
 
-export function SportBadge({ sport }: { sport: 'tennis' | 'pickleball' }) {
-  const isTennis = sport === 'tennis';
+const SPORTS = {
+  tennis: { icon: '🎾', label: 'Tennis' },
+  pickleball: { icon: '🏓', label: 'Pickleball' },
+  basketball: { icon: '🏀', label: 'Basketball' },
+} as const;
+
+export function SportBadge({ sport }: { sport: string }) {
+  // Unknown values come from old rows; show the raw value rather than
+  // silently filing them under the wrong sport.
+  const entry = SPORTS[sport as keyof typeof SPORTS];
+
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
-        isTennis
+        sport === 'tennis'
           ? 'bg-court-soft text-court-dark'
           : 'bg-orange-100 text-clay dark:bg-orange-950/50'
       }`}
     >
-      <span aria-hidden="true">{isTennis ? '🎾' : '🏓'}</span>
-      {isTennis ? 'Tennis' : 'Pickleball'}
+      {entry ? <span aria-hidden="true">{entry.icon}</span> : null}
+      {entry?.label ?? sport}
     </span>
   );
 }
