@@ -7,11 +7,13 @@ import {
   saveCourtsAction,
   saveHoursAction,
   saveLimitsAction,
+  saveNotifyAction,
   savePaymentAction,
   savePricingAction,
   type AdminFormState,
 } from '@/app/admin/actions';
 import type { CourtConfig } from '@/lib/courts';
+import type { NotifyConfig } from '@/lib/payment';
 import { Field, Notice, PrimaryButton, inputClass } from '@/components/ui';
 import type { PaymentConfig } from '@/lib/payment';
 import type { BookingLimits } from '@/lib/rules';
@@ -213,6 +215,89 @@ export function PaymentForm({ payment }: { payment: PaymentConfig }) {
       </Field>
 
       <SubmitButton label="Save payment details" />
+    </form>
+  );
+}
+
+export function NotifyForm({
+  notify,
+  smsReady,
+}: {
+  notify: NotifyConfig;
+  smsReady: boolean;
+}) {
+  const [state, formAction] = useActionState<AdminFormState, FormData>(
+    saveNotifyAction,
+    {},
+  );
+
+  return (
+    <form action={formAction} className="space-y-4">
+      <Feedback state={state} />
+
+      {smsReady ? null : (
+        <Notice tone="error">
+          Texting is switched off because no Semaphore API key is set on the
+          server. These settings are saved but nothing will send.
+        </Notice>
+      )}
+
+      <Field
+        label="Association numbers"
+        hint="One per line. Each gets a text when a request comes in."
+      >
+        <textarea
+          name="adminPhones"
+          rows={3}
+          defaultValue={notify.adminPhones.join('\n')}
+          placeholder="09171234567"
+          className={inputClass}
+        />
+      </Field>
+
+      <label className="flex items-start gap-3 rounded-xl border border-edge p-3">
+        <input
+          type="checkbox"
+          name="textAdminOnRequest"
+          defaultChecked={notify.textAdminOnRequest}
+          className="mt-0.5 size-5 accent-[#4a7c2b]"
+        />
+        <span className="text-sm font-medium">
+          Text us when a court is requested
+        </span>
+      </label>
+
+      <label className="flex items-start gap-3 rounded-xl border border-edge p-3">
+        <input
+          type="checkbox"
+          name="textBookerOnDecision"
+          defaultChecked={notify.textBookerOnDecision}
+          className="mt-0.5 size-5 accent-[#4a7c2b]"
+        />
+        <span className="text-sm font-medium">
+          Text the booker when we approve or decline
+        </span>
+      </label>
+
+      <label className="flex items-start gap-3 rounded-xl border border-edge p-3">
+        <input
+          type="checkbox"
+          name="textFreeBookings"
+          defaultChecked={notify.textFreeBookings}
+          className="mt-0.5 size-5 accent-[#4a7c2b]"
+        />
+        <span>
+          <span className="block text-sm font-medium">
+            Text about free morning bookings too
+          </span>
+          <span className="block text-xs text-muted">
+            Off by default — there is no payment to chase, and every text costs
+            a credit.
+          </span>
+        </span>
+      </label>
+
+      <SubmitButton label="Save notifications" />
     </form>
   );
 }

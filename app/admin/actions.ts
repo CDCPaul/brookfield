@@ -20,6 +20,7 @@ import {
 import { createClosure, deleteClosure } from '@/lib/queries/closures';
 import {
   saveCourts,
+  saveNotify,
   savePayment,
   savePricing,
   saveSchedule,
@@ -28,6 +29,7 @@ import {
 import { setPhoneBlocked } from '@/lib/queries/bookers';
 import { LAST_HOUR, OPEN_HOUR, isValidSlotIndex } from '@/lib/schedule';
 import { isValidDateStr } from '@/lib/time';
+import { isValidPhilippineMobile, normalizePhone } from '@/lib/unit-key';
 
 async function requireAdmin(): Promise<void> {
   if (!(await isAdmin())) {
@@ -361,6 +363,33 @@ export async function saveCourtsAction(
   revalidatePath('/book');
   revalidatePath('/rules');
   return { message: 'Courts saved.' };
+}
+
+export async function saveNotifyAction(
+  _previous: AdminFormState,
+  formData: FormData,
+): Promise<AdminFormState> {
+  await requireAdmin();
+
+  const entered = text(formData, 'adminPhones')
+    .split(/[\n,]/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const bad = entered.filter((phone) => !isValidPhilippineMobile(phone));
+  if (bad.length > 0) {
+    return { error: `Not a valid mobile number: ${bad[0]}` };
+  }
+
+  await saveNotify({
+    adminPhones: [...new Set(entered.map(normalizePhone))],
+    textAdminOnRequest: text(formData, 'textAdminOnRequest') === 'on',
+    textBookerOnDecision: text(formData, 'textBookerOnDecision') === 'on',
+    textFreeBookings: text(formData, 'textFreeBookings') === 'on',
+  });
+
+  revalidatePath('/admin/settings');
+  return { message: 'Notification settings saved.' };
 }
 
 export async function savePaymentAction(

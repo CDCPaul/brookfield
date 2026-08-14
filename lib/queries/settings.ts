@@ -1,6 +1,12 @@
 import { DEFAULT_COURT_CONFIG, type CourtConfig } from '@/lib/courts';
 import { db, settings } from '@/lib/db';
-import { DEFAULT_PAYMENT, type PaymentConfig } from '@/lib/payment';
+import {
+  DEFAULT_NOTIFY,
+  DEFAULT_PAYMENT,
+  type NotifyConfig,
+  type PaymentConfig,
+} from '@/lib/payment';
+import { normalizePhone } from '@/lib/unit-key';
 import { DEFAULT_LIMITS, type BookingLimits } from '@/lib/rules';
 import {
   DEFAULT_PRICING,
@@ -20,6 +26,7 @@ const KEYS = {
   pricing: 'pricing',
   payment: 'payment',
   courts: 'courts',
+  notify: 'notify',
 } as const;
 
 export type { PaymentConfig } from '@/lib/payment';
@@ -61,7 +68,39 @@ export type AssociationSettings = {
   pricing: Pricing;
   payment: PaymentConfig;
   courts: CourtConfig;
+  notify: NotifyConfig;
 };
+
+function toNotify(stored: Map<string, unknown>): NotifyConfig {
+  const raw = stored.get(KEYS.notify);
+  const source = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<
+    string,
+    unknown
+  >;
+
+  const phones = Array.isArray(source.adminPhones)
+    ? source.adminPhones
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map(normalizePhone)
+        .filter(Boolean)
+    : DEFAULT_NOTIFY.adminPhones;
+
+  return {
+    adminPhones: [...new Set(phones)],
+    textAdminOnRequest: readBoolean(
+      source.textAdminOnRequest,
+      DEFAULT_NOTIFY.textAdminOnRequest,
+    ),
+    textBookerOnDecision: readBoolean(
+      source.textBookerOnDecision,
+      DEFAULT_NOTIFY.textBookerOnDecision,
+    ),
+    textFreeBookings: readBoolean(
+      source.textFreeBookings,
+      DEFAULT_NOTIFY.textFreeBookings,
+    ),
+  };
+}
 
 function toCourts(stored: Map<string, unknown>): CourtConfig {
   const raw = stored.get(KEYS.courts);
@@ -175,6 +214,7 @@ export async function getSettings(): Promise<AssociationSettings> {
     pricing: toPricing(stored),
     payment: toPayment(stored),
     courts: toCourts(stored),
+    notify: toNotify(stored),
   };
 }
 
@@ -203,4 +243,8 @@ export async function savePayment(payment: PaymentConfig): Promise<void> {
 
 export async function saveCourts(courts: CourtConfig): Promise<void> {
   await write(KEYS.courts, courts);
+}
+
+export async function saveNotify(notify: NotifyConfig): Promise<void> {
+  await write(KEYS.notify, notify);
 }

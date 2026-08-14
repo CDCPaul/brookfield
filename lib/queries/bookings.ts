@@ -46,6 +46,7 @@ import {
   type UnitInput,
 } from '@/lib/unit-key';
 
+import { notifyDecision, notifyNewRequest } from '@/lib/notify';
 import { PAYMENT_HOLD_MINUTES } from '@/lib/payment';
 
 import { isPhoneBlocked } from './bookers';
@@ -554,11 +555,14 @@ export async function createRequest(
       ),
     );
 
+  const created = madeSoFar.map((entry) => ({ ...entry, groupCode }));
+  await notifyNewRequest(created);
+
   return {
     ok: true,
-    bookings: madeSoFar.map((entry) => ({ ...entry, groupCode })),
+    bookings: created,
     groupCode,
-    total: madeSoFar.reduce((sum, entry) => sum + entry.amount, 0),
+    total: created.reduce((sum, entry) => sum + entry.amount, 0),
   };
 }
 
@@ -811,30 +815,65 @@ export async function clearPaymentProof(bookingId: number): Promise<void> {
     .where(eq(bookings.id, bookingId));
 }
 
-export async function approveBooking(
-  bookingId: number,
-  markPaid: boolean,
-): Promise<MutationResult> {
+/**
+ * Every pending booking that was requested together with this one.
+ *
+ * Hours booked in one go are paid for and decided as one, so approving or
+ * declining has to take the whole group — otherwise half a request is
+ * confirmed and the booker is charged for a court they cannot use.
+ */
+async function pendingGroupIds(bookingId: number): Promise<number[]> {
   const [current] = await db
-    .select({ amount: bookings.amount })
+    .select({ groupCode: bookings.groupCode })
     .from(bookings)
     .where(and(eq(bookings.id, bookingId), eq(bookings.status, 'pending')))
     .limit(1);
 
-  if (!current) {
+  if (!current) return [];
+  if (!current.groupCode) return [bookingId];
+
+  const rows = await db
+    .select({ id: bookings.id })
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.groupCode, current.groupCode),
+        eq(bookings.status, 'pending'),
+      ),
+    );
+  return rows.map((row) => row.id);
+}
+
+export async function approveBooking(
+  bookingId: number,
+  markPaid: boolean,
+): Promise<MutationResult> {
+  const ids = await pendingGroupIds(bookingId);
+  if (ids.length === 0) {
     return { ok: false, message: 'This request is no longer pending.' };
   }
 
-  const paid = markPaid && current.amount > 0;
-
+  const now = new Date();
   await db
     .update(bookings)
     .set({
       status: 'confirmed',
-      decidedAt: new Date(),
-      ...(paid ? { paymentStatus: 'paid', paidAt: new Date() } : {}),
+      decidedAt: now,
+      ...(markPaid ? { paymentStatus: 'paid', paidAt: now } : {}),
     })
-    .where(eq(bookings.id, bookingId));
+    .where(and(inArray(bookings.id, ids), gt(bookings.amount, 0)));
+
+  // Free bookings have no payment to mark, so they are updated separately.
+  await db
+    .update(bookings)
+    .set({ status: 'confirmed', decidedAt: now })
+    .where(and(inArray(bookings.id, ids), eq(bookings.amount, 0)));
+
+  const decided = await db
+    .select()
+    .from(bookings)
+    .where(inArray(bookings.id, ids));
+  await notifyDecision(decided, 'confirmed');
 
   return { ok: true };
 }
@@ -843,20 +882,28 @@ export async function rejectBooking(
   bookingId: number,
   note: string,
 ): Promise<MutationResult> {
-  const updated = await db
+  const ids = await pendingGroupIds(bookingId);
+  if (ids.length === 0) {
+    return { ok: false, message: 'This request is no longer pending.' };
+  }
+
+  await db
     .update(bookings)
     .set({
       status: 'rejected',
       decidedAt: new Date(),
       decisionNote: note.trim() || null,
     })
-    .where(and(eq(bookings.id, bookingId), eq(bookings.status, 'pending')))
-    .returning({ id: bookings.id });
+    .where(inArray(bookings.id, ids));
 
-  if (updated.length === 0) {
-    return { ok: false, message: 'This request is no longer pending.' };
-  }
-  await releaseResources(bookingId);
+  const declined = await db
+    .select()
+    .from(bookings)
+    .where(inArray(bookings.id, ids));
+
+  for (const id of ids) await releaseResources(id);
+  await notifyDecision(declined, 'rejected', note);
+
   return { ok: true };
 }
 

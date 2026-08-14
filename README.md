@@ -60,6 +60,8 @@ The resident app is at `/`, the association console at `/admin`.
 | `npm run db:repair` | Rebuild the partial unique index (see below) |
 | `npm run db:clear -- --yes` | Wipe all bookings and units before go-live |
 | `npm run db:studio` | Drizzle Studio |
+| `npm run sms:test` | Preview the text messages and their credit cost |
+| `npm run sms:test -- 09171234567` | Send one real text (costs a credit) |
 
 > **After every `db:push`, run `npm run smoke`.** `drizzle-kit push` does not
 > notice changes to the *predicate* of a partial index — it leaves the old
@@ -91,6 +93,19 @@ free bookings — paid hours are never capped. Limits key on the household for
 residents and on the mobile number for guests, so choosing "guest" is not a way
 around them. Hours, prices, GCash details and limits are all editable at
 `/admin/settings`.
+
+## Text messages
+
+Semaphore bills one credit per 160 characters and segments at 153 after that,
+so a message that drifts one character over costs double. Every template in
+`lib/notify/messages.ts` is written to fit one credit and the tests hold them
+there — check `npm run sms:test` before changing the wording.
+
+Texting is never a condition of booking: if Semaphore is unconfigured, down or
+out of credit, the booking still goes through and the failure is logged. Free
+morning bookings are quiet by default, since there is no payment to chase.
+
+Who gets texted, and about what, is set at `/admin/settings`.
 
 ## Known trade-offs
 

@@ -41,6 +41,25 @@ export function isPaymentConfigured(payment: PaymentConfig): boolean {
  */
 export const PAYMENT_HOLD_MINUTES = 15;
 
+/** Who gets told about new requests, and whether texting is on at all. */
+export type NotifyConfig = {
+  /** Association numbers that receive a text for every new request. */
+  adminPhones: string[];
+  /** Text the association when a request comes in. */
+  textAdminOnRequest: boolean;
+  /** Text the booker when their request is decided. */
+  textBookerOnDecision: boolean;
+  /** Skip texting for free bookings, where nothing is at stake. */
+  textFreeBookings: boolean;
+};
+
+export const DEFAULT_NOTIFY: NotifyConfig = {
+  adminPhones: [],
+  textAdminOnRequest: true,
+  textBookerOnDecision: true,
+  textFreeBookings: false,
+};
+
 export const MAX_PROOF_BYTES = 2 * 1024 * 1024;
 
 export const ACCEPTED_PROOF_TYPES = [

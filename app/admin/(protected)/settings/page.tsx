@@ -2,16 +2,19 @@ import {
   CourtsForm,
   HoursForm,
   LimitsForm,
+  NotifyForm,
   PaymentForm,
   PricingForm,
 } from '@/components/admin/settings-forms';
+import { isSmsConfigured } from '@/lib/notify/sms';
 import { Card, SectionTitle } from '@/components/ui';
 import { getSettings } from '@/lib/queries/settings';
 
 export const dynamic = 'force-dynamic';
 
 export default async function SettingsPage() {
-  const { limits, schedule, pricing, payment, courts } = await getSettings();
+  const { limits, schedule, pricing, payment, courts, notify } =
+    await getSettings();
 
   return (
     <div className="space-y-6">
@@ -26,6 +29,13 @@ export default async function SettingsPage() {
         <SectionTitle>Opening hours</SectionTitle>
         <Card>
           <HoursForm schedule={schedule} />
+        </Card>
+      </section>
+
+      <section>
+        <SectionTitle>Text messages</SectionTitle>
+        <Card>
+          <NotifyForm notify={notify} smsReady={isSmsConfigured()} />
         </Card>
       </section>
 
