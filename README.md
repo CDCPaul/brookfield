@@ -145,6 +145,27 @@ whoever booked on it last.
 
 ## Deploying
 
-Deploy to Vercel and set `DATABASE_URL`, `ADMIN_PASSWORD` and `AUTH_SECRET` as
-environment variables. Rotate the Neon password and pick a real `AUTH_SECRET`
-before going live.
+Vercel project **brookfield**, served at `brookfield-tau.vercel.app`. Rotate
+the Neon password and pick a real `AUTH_SECRET` before going live.
+
+| Variable | Without it |
+|---|---|
+| `DATABASE_URL` | Nothing works |
+| `ADMIN_PASSWORD`, `AUTH_SECRET` | No association console |
+| `BLOB_READ_WRITE_TOKEN` | Receipt upload answers 503 |
+| `SEMAPHORE_API_KEY`, `SEMAPHORE_SENDER_NAME` | No text messages |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | No browser notifications |
+
+`BLOB_READ_WRITE_TOKEN` is injected by connecting the Blob store to the project
+in the Vercel dashboard rather than typed in by hand.
+
+> Do not expose the VAPID public key as `NEXT_PUBLIC_`. Those are substituted
+> into the bundle while it builds, and a host that keeps variables encrypted
+> until runtime — Vercel's sensitive variables — leaves the placeholder in
+> place. The page reads it on the server and passes it down as a prop, which
+> also means rotating the pair needs no rebuild.
+
+> Check which project you are pointed at before trusting a deploy. Two Vercel
+> projects were once wired to this same repository, so both rebuilt on every
+> push and looked identical — while the environment variables sat on only one
+> of them.
